@@ -67,6 +67,10 @@ class TemporalSample:
     raw: dict[str, Any]
 
 
+# 兼容原 baseline 的命名；新项目内部逐步使用更具体的 TemporalSample。
+DatasetSample = TemporalSample
+
+
 @dataclass(frozen=True, slots=True)
 class FrameRef:
     """Runner 使用的 frame sequence 引用。"""

@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from evidenceqa_baseline_refactor.config import PromptMode
+
+PROMPT_MODE_ANSWER_ONLY = "answer_only"
+PROMPT_MODE_GROUNDED = "grounded"
+PROMPT_MODE_SPATIAL = "spatial"
+PROMPT_MODES = (PROMPT_MODE_ANSWER_ONLY, PROMPT_MODE_GROUNDED)
 
 ANSWER_ONLY_SYSTEM_PROMPT = """You are a video question-answering model.
 
@@ -158,3 +165,173 @@ def build_spatial_prompt(
             frame_indices=frame_context,
         ),
     )
+
+
+def build_user_prompt(
+    question: str,
+    duration_seconds: float,
+    *,
+    prompt_mode: str = PROMPT_MODE_GROUNDED,
+) -> str:
+    """构造单个样本的用户提示词。
+
+    Args:
+        question: 问题文本。
+        duration_seconds: 视频时长秒数。
+        prompt_mode: ``answer_only`` 或 ``grounded``。
+
+    Returns:
+        填充时长和问题后的用户提示词。
+    """
+
+    if prompt_mode == PROMPT_MODE_ANSWER_ONLY:
+        return ANSWER_ONLY_USER_TEMPLATE.format(question=question)
+    if prompt_mode != PROMPT_MODE_GROUNDED:
+        raise ValueError(f"unsupported prompt_mode={prompt_mode!r}")
+    return GROUNDED_USER_TEMPLATE.format(
+        duration_seconds=duration_seconds,
+        question=question,
+    )
+
+
+def build_qwen_messages(
+    *,
+    question: str,
+    duration_seconds: float,
+    media_path: Path,
+    fps: float | None,
+    max_frames: int,
+    max_pixels: int | None,
+    prompt_mode: str = PROMPT_MODE_GROUNDED,
+) -> list[dict[str, Any]]:
+    """构造 Qwen-VL chat messages。"""
+
+    if prompt_mode not in PROMPT_MODES:
+        raise ValueError(f"unsupported prompt_mode={prompt_mode!r}")
+    video_payload: dict[str, Any] = {"type": "video", "video": _video_path(media_path)}
+    if fps is not None:
+        video_payload["fps"] = fps
+    if max_frames > 0:
+        video_payload["max_frames"] = max_frames
+    if max_pixels is not None and max_pixels > 0:
+        video_payload["max_pixels"] = max_pixels
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                ANSWER_ONLY_SYSTEM_PROMPT
+                if prompt_mode == PROMPT_MODE_ANSWER_ONLY
+                else GROUNDED_SYSTEM_PROMPT
+            ),
+        },
+        {
+            "role": "user",
+            "content": [
+                video_payload,
+                {
+                    "type": "text",
+                    "text": build_user_prompt(
+                        question,
+                        duration_seconds,
+                        prompt_mode=prompt_mode,
+                    ),
+                },
+            ],
+        },
+    ]
+
+
+def build_qwen_spatial_messages(
+    *,
+    question: str,
+    frame_paths: list[tuple[int, Path]],
+    max_pixels: int | None,
+) -> list[dict[str, Any]]:
+    """构造 Qwen-VL spatial grounding chat messages。"""
+
+    if not frame_paths:
+        raise ValueError("spatial prompt requires at least one frame")
+    frame_indices = ", ".join(str(frame_index) for frame_index, _ in frame_paths)
+    content: list[dict[str, Any]] = []
+    for frame_index, path in frame_paths:
+        content.append({"type": "text", "text": f"Frame index {frame_index}:"})
+        payload: dict[str, Any] = {"type": "image", "image": _image_path(path)}
+        if max_pixels is not None and max_pixels > 0:
+            payload["max_pixels"] = max_pixels
+        content.append(payload)
+    content.append(
+        {
+            "type": "text",
+            "text": SPATIAL_USER_TEMPLATE.format(
+                frame_indices=frame_indices,
+                question=question,
+            ),
+        }
+    )
+    return [
+        {"role": "system", "content": SPATIAL_SYSTEM_PROMPT},
+        {"role": "user", "content": content},
+    ]
+
+
+def build_frame_temporal_prompt(
+    *,
+    question: str,
+    duration_seconds: float,
+    frame_context: str,
+    prompt_mode: str = PROMPT_MODE_GROUNDED,
+) -> str:
+    """为消费抽样帧图片的 adapter 构造 temporal prompt。"""
+
+    if prompt_mode == PROMPT_MODE_ANSWER_ONLY:
+        output_schema = '{\n  "answer": "..."\n}'
+    elif prompt_mode == PROMPT_MODE_GROUNDED:
+        output_schema = (
+            '{\n  "answer": "...",\n'
+            '  "temporal_evidence": [[start_time, end_time]]\n}'
+        )
+    else:
+        raise ValueError(f"unsupported prompt_mode={prompt_mode!r}")
+
+    return f"""You are given sampled frames from a video.
+
+Video duration: {duration_seconds:g} seconds
+
+Sampled frames:
+{frame_context}
+
+Question:
+{question}
+
+Rules:
+1. Answer using only the visible frames.
+2. Times are measured in seconds from the beginning of the video.
+3. Replace start_time and end_time with numeric second values.
+4. Do not copy the output schema or use placeholder names.
+5. Return valid JSON only.
+6. The first character of your response must be {{.
+7. Do not include markdown fences, explanations, or extra text.
+
+Return JSON only:
+{output_schema}"""
+
+
+def build_spatial_text_prompt(*, question: str, frame_context: str) -> str:
+    """为消费帧图片的 spatial adapter 构造纯文本 prompt。"""
+
+    user_prompt = SPATIAL_USER_TEMPLATE.format(
+        frame_indices=frame_context,
+        question=question,
+    )
+    return f"{SPATIAL_SYSTEM_PROMPT}\n\n{user_prompt}"
+
+
+def _video_path(path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    return str(resolved)
+
+
+def _image_path(path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    return str(resolved)

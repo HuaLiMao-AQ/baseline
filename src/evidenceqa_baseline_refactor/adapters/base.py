@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from evidenceqa_baseline_refactor.config import ModelConfig, PromptMode
 from evidenceqa_baseline_refactor.dataset import (
@@ -17,6 +17,20 @@ from evidenceqa_baseline_refactor.dataset import (
 
 class AdapterError(RuntimeError):
     """模型 adapter 抛出的统一异常。"""
+
+
+class ModelAdapter(Protocol):
+    """原 baseline runner 使用的最小模型接口。"""
+
+    def predict(self, sample: TemporalSample, media_path: Path) -> str:
+        """返回单个 temporal 样本的原始模型输出。"""
+
+    def predict_spatial(
+        self,
+        sample: SpatialSample,
+        frame_paths: list[tuple[int, Path]],
+    ) -> str:
+        """返回单个 spatial grounding 样本的原始模型输出。"""
 
 
 @dataclass(frozen=True, slots=True)
