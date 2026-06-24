@@ -1,12 +1,9 @@
-"""baseline prompt 构造工具。"""
+"""Video-LMM temporal QA 的集中提示词。"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-from evidenceqa_baseline.config import PromptMode
 
 PROMPT_MODE_ANSWER_ONLY = "answer_only"
 PROMPT_MODE_GROUNDED = "grounded"
@@ -28,7 +25,7 @@ Output:
   "answer": "concise answer"
 }"""
 
-ANSWER_ONLY_USER_TEMPLATE = """Question:
+ANSWER_ONLY_USER_PROMPT_TEMPLATE = """Question:
 {question}
 
 Return JSON only:
@@ -55,7 +52,7 @@ Output:
   "temporal_evidence": [[start_time, end_time]]
 }"""
 
-GROUNDED_USER_TEMPLATE = """Video duration: {duration_seconds:g} seconds
+GROUNDED_USER_PROMPT_TEMPLATE = """Video duration: {duration_seconds:g} seconds
 
 Question:
 {question}
@@ -87,7 +84,7 @@ Output:
   "box": [0.10, 0.20, 0.80, 0.90]
 }"""
 
-SPATIAL_USER_TEMPLATE = """Supplied frame indices:
+SPATIAL_USER_PROMPT_TEMPLATE = """Supplied frame indices:
 {frame_indices}
 
 Question:
@@ -100,71 +97,6 @@ Return JSON only:
   "point": [0.50, 0.50],
   "box": [0.10, 0.20, 0.80, 0.90]
 }}"""
-
-
-@dataclass(frozen=True, slots=True)
-class PromptBundle:
-    """系统 prompt 与用户 prompt 的组合。"""
-
-    system: str
-    user: str
-
-    def as_text(self) -> str:
-        """合并为纯文本 prompt，供非 chat 模型或轻量 adapter 使用。"""
-
-        return f"{self.system}\n\n{self.user}"
-
-
-def build_temporal_prompt(
-    *,
-    question: str,
-    duration_seconds: float,
-    prompt_mode: PromptMode,
-) -> PromptBundle:
-    """构造 temporal QA prompt。
-
-    Args:
-        question: 问题文本。
-        duration_seconds: 视频时长秒数。
-        prompt_mode: `answer_only` 或 `grounded`。
-
-    Returns:
-        系统和用户 prompt。
-    """
-
-    if prompt_mode == "answer_only":
-        return PromptBundle(
-            system=ANSWER_ONLY_SYSTEM_PROMPT,
-            user=ANSWER_ONLY_USER_TEMPLATE.format(question=question),
-        )
-    if prompt_mode == "grounded":
-        return PromptBundle(
-            system=GROUNDED_SYSTEM_PROMPT,
-            user=GROUNDED_USER_TEMPLATE.format(
-                question=question,
-                duration_seconds=duration_seconds,
-            ),
-        )
-    raise ValueError(f"不支持 temporal prompt_mode: {prompt_mode}")
-
-
-def build_spatial_prompt(
-    *,
-    question: str,
-    frame_indices: list[int] | tuple[int, ...],
-) -> PromptBundle:
-    """构造 spatial grounding prompt。"""
-
-    if not frame_indices:
-        raise ValueError("spatial prompt 至少需要一个 frame index")
-    frame_context = ", ".join(str(index) for index in frame_indices)
-    return PromptBundle(
-        system=SPATIAL_SYSTEM_PROMPT,
-        user=SPATIAL_USER_TEMPLATE.format(
-            question=question,
-            frame_indices=frame_context,
-        ),
-    )
 
 
 def build_user_prompt(
@@ -185,10 +117,10 @@ def build_user_prompt(
     """
 
     if prompt_mode == PROMPT_MODE_ANSWER_ONLY:
-        return ANSWER_ONLY_USER_TEMPLATE.format(question=question)
+        return ANSWER_ONLY_USER_PROMPT_TEMPLATE.format(question=question)
     if prompt_mode != PROMPT_MODE_GROUNDED:
         raise ValueError(f"unsupported prompt_mode={prompt_mode!r}")
-    return GROUNDED_USER_TEMPLATE.format(
+    return GROUNDED_USER_PROMPT_TEMPLATE.format(
         duration_seconds=duration_seconds,
         question=question,
     )
@@ -204,7 +136,20 @@ def build_qwen_messages(
     max_pixels: int | None,
     prompt_mode: str = PROMPT_MODE_GROUNDED,
 ) -> list[dict[str, Any]]:
-    """构造 Qwen-VL chat messages。"""
+    """构造 Qwen-VL chat messages。
+
+    Args:
+        question: 问题文本。
+        duration_seconds: 视频时长秒数。
+        media_path: 本地视频路径。
+        fps: 可选采样 FPS。
+        max_frames: 最大采样帧数。
+        max_pixels: 可选视觉输入最大像素数。
+        prompt_mode: ``answer_only`` 或 ``grounded``。
+
+    Returns:
+        可传给 Qwen-VL processor 的消息列表。
+    """
 
     if prompt_mode not in PROMPT_MODES:
         raise ValueError(f"unsupported prompt_mode={prompt_mode!r}")
@@ -263,7 +208,7 @@ def build_qwen_spatial_messages(
     content.append(
         {
             "type": "text",
-            "text": SPATIAL_USER_TEMPLATE.format(
+            "text": SPATIAL_USER_PROMPT_TEMPLATE.format(
                 frame_indices=frame_indices,
                 question=question,
             ),
@@ -282,7 +227,7 @@ def build_frame_temporal_prompt(
     frame_context: str,
     prompt_mode: str = PROMPT_MODE_GROUNDED,
 ) -> str:
-    """为消费抽样帧图片的 adapter 构造 temporal prompt。"""
+    """Build a text prompt for adapters that consume sampled frames as images."""
 
     if prompt_mode == PROMPT_MODE_ANSWER_ONLY:
         output_schema = '{\n  "answer": "..."\n}'
@@ -318,9 +263,9 @@ Return JSON only:
 
 
 def build_spatial_text_prompt(*, question: str, frame_context: str) -> str:
-    """为消费帧图片的 spatial adapter 构造纯文本 prompt。"""
+    """Build a text prompt for spatial adapters that consume frame images."""
 
-    user_prompt = SPATIAL_USER_TEMPLATE.format(
+    user_prompt = SPATIAL_USER_PROMPT_TEMPLATE.format(
         frame_indices=frame_context,
         question=question,
     )

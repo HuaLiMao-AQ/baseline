@@ -1,4 +1,4 @@
-"""CUDA 设备选择和运行时诊断。"""
+"""CUDA device selection and runtime diagnostics for the PRO 6000 baseline."""
 
 from __future__ import annotations
 
@@ -6,22 +6,11 @@ from typing import Any
 
 
 class DeviceSelectionError(RuntimeError):
-    """请求的加速设备不可用时抛出。"""
+    """Raised when the requested accelerator cannot be used."""
 
 
 def select_device(torch: Any, requested: str) -> str:
-    """按原 baseline 的单卡 CUDA 路线选择设备。
-
-    Args:
-        torch: 已导入的 torch 模块。
-        requested: CLI 或配置中请求的设备名。
-
-    Returns:
-        torch 可识别的设备字符串。
-
-    Raises:
-        DeviceSelectionError: 请求 CPU 或 CUDA 不可用时抛出。
-    """
+    """Return a CUDA torch device string for the PRO 6000 single-GPU route."""
 
     normalized = requested.strip().lower()
     if normalized in {"gpu", "cuda"} or normalized.startswith("cuda:"):
@@ -30,22 +19,13 @@ def select_device(torch: Any, requested: str) -> str:
         raise DeviceSelectionError(_gpu_unavailable_message(torch, requested))
 
     raise DeviceSelectionError(
-        "baseline 目前只支持 CUDA 设备；"
-        f"收到的设备请求是 {requested!r}。"
+        "PRO 6000 baseline only supports CUDA devices; "
+        f"requested {requested!r}."
     )
 
 
 def select_dtype(torch: Any, requested: str, device: str) -> Any:
-    """把配置里的 dtype 字符串映射为 torch dtype。
-
-    Args:
-        torch: 已导入的 torch 模块。
-        requested: dtype 名称，例如 ``bfloat16`` 或 ``float16``。
-        device: 已选择的设备字符串。
-
-    Returns:
-        torch dtype 对象。
-    """
+    """Map a CLI dtype string to a torch dtype for the selected device."""
 
     normalized = requested.lower()
     if normalized == "auto":
@@ -58,11 +38,11 @@ def select_dtype(torch: Any, requested: str, device: str) -> Any:
         return torch.float16 if device != "cpu" else torch.float32
     if normalized in {"fp32", "float32"}:
         return torch.float32
-    raise DeviceSelectionError(f"不支持的 dtype: {requested}")
+    raise DeviceSelectionError(f"unsupported dtype: {requested}")
 
 
 def collect_torch_accelerator_info(torch: Any) -> dict[str, Any]:
-    """收集 CUDA 信息，写入可复现实验配置。"""
+    """Collect CUDA metadata for reproducible PRO 6000 runs."""
 
     cuda_available = _cuda_available(torch)
     cuda_info: dict[str, Any] = {
@@ -83,7 +63,7 @@ def collect_torch_accelerator_info(torch: Any) -> dict[str, Any]:
         )
         try:
             cuda_info["current_device"] = torch.cuda.current_device()
-        except Exception:  # noqa: BLE001 - 诊断信息不能阻断实验。
+        except Exception:  # noqa: BLE001 - diagnostics should never break a run.
             cuda_info["current_device"] = None
         try:
             cuda_info["bf16_supported"] = bool(torch.cuda.is_bf16_supported())
@@ -114,6 +94,7 @@ def _gpu_unavailable_message(torch: Any, requested: str) -> str:
     cuda = getattr(getattr(torch, "version", None), "cuda", None)
     build = "CUDA" if cuda else "CPU-only"
     return (
-        f"请求了 {requested!r}，但当前没有可用 CUDA GPU。"
-        f"检测到的 PyTorch 构建为 {build}；torch.version.cuda={cuda!r}。"
+        f"requested {requested!r}, but no CUDA GPU device is available. "
+        f"Detected PyTorch build: {build}; torch.version.cuda={cuda!r}; "
+        "this baseline is pinned to one NVIDIA RTX PRO 6000."
     )

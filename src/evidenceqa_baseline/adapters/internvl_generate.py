@@ -1,4 +1,4 @@
-"""InternVL 直接生成路径的 prompt 构造和解码工具。"""
+"""Direct InternVL prompt building and decoding helpers."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ IMG_START_TOKEN = "<img>"
 
 
 class InternVLGenerateError(RuntimeError):
-    """InternVL prompt 构造或生成失败时抛出。"""
+    """InternVL prompt or generation failure."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +32,7 @@ def generate_internvl_response(
     num_patches_list: list[int] | None = None,
     response_prefix: str = "",
 ) -> str:
-    """不依赖远程 chat/generate 方法生成单条 InternVL 响应。"""
+    """Generate one InternVL answer without using remote chat/generate methods."""
 
     prompt = build_internvl_prompt(
         model=model,
@@ -119,9 +119,9 @@ def generate_internvl_tokens(
     visual_features: Any | None = None,
 ) -> Any:
     if not hasattr(model, "language_model"):
-        raise InternVLGenerateError("InternVL 模型缺少 language_model")
+        raise InternVLGenerateError("InternVL model has no language_model")
     if getattr(model, "img_context_token_id", None) is None:
-        raise InternVLGenerateError("InternVL 图像上下文 token 尚未初始化")
+        raise InternVLGenerateError("InternVL image context token is not initialized")
 
     input_embeds = _internvl_prompt_embeds(
         model,
@@ -141,20 +141,20 @@ def _conversation_template(model: Any) -> Any:
     template = getattr(model, "conv_template", None)
     copy = getattr(template, "copy", None)
     if not callable(copy):
-        raise InternVLGenerateError("InternVL 模型缺少 conversation template")
+        raise InternVLGenerateError("InternVL model has no conversation template")
 
     template = copy()
     system_message = getattr(model, "system_message", None)
     if system_message is not None and hasattr(template, "system_message"):
         template.system_message = system_message
     if not callable(getattr(template, "append_message", None)):
-        raise InternVLGenerateError("InternVL conversation template 无法追加消息")
+        raise InternVLGenerateError("InternVL conversation template cannot append messages")
     if not callable(getattr(template, "get_prompt", None)):
-        raise InternVLGenerateError("InternVL conversation template 无法构造 prompt")
+        raise InternVLGenerateError("InternVL conversation template cannot build prompts")
     if not getattr(template, "roles", None):
-        raise InternVLGenerateError("InternVL conversation template 缺少 roles")
+        raise InternVLGenerateError("InternVL conversation template has no roles")
     if getattr(template, "sep", None) is None:
-        raise InternVLGenerateError("InternVL conversation template 缺少停止文本")
+        raise InternVLGenerateError("InternVL conversation template has no stop text")
     return template
 
 
@@ -167,9 +167,9 @@ def _expand_image_placeholders(
     expanded = query
     for num_patches in num_patches_list:
         if num_patches <= 0:
-            raise InternVLGenerateError("InternVL 图像 patch 数必须为正数")
+            raise InternVLGenerateError("InternVL image patch counts must be positive")
         if IMAGE_PLACEHOLDER not in expanded:
-            raise InternVLGenerateError("InternVL prompt 中图像槽位少于帧数")
+            raise InternVLGenerateError("InternVL prompt has fewer image slots than frames")
         image_tokens = (
             IMG_START_TOKEN
             + IMG_CONTEXT_TOKEN * num_image_token * num_patches
@@ -178,7 +178,7 @@ def _expand_image_placeholders(
         expanded = expanded.replace(IMAGE_PLACEHOLDER, image_tokens, 1)
 
     if IMAGE_PLACEHOLDER in expanded:
-        raise InternVLGenerateError("InternVL prompt 中图像槽位多于帧数")
+        raise InternVLGenerateError("InternVL prompt has more image slots than frames")
     return expanded
 
 
@@ -204,7 +204,7 @@ def _internvl_prompt_embeds(
     selected = flat_input_ids == model.img_context_token_id
     selected_count = int(selected.sum().item())
     if selected_count <= 0:
-        raise InternVLGenerateError("InternVL prompt 中没有图像上下文 token")
+        raise InternVLGenerateError("InternVL prompt has no image context tokens")
 
     flat_vit_embeds = vit_embeds.reshape(-1, hidden_size).to(
         device=flat_embeds.device,
@@ -212,7 +212,7 @@ def _internvl_prompt_embeds(
     )
     if flat_vit_embeds.shape[0] != selected_count:
         raise InternVLGenerateError(
-            "InternVL 视觉 token 数与 prompt 图像 token 数不一致"
+            "InternVL visual token count does not match prompt image tokens"
         )
     flat_embeds[selected] = flat_vit_embeds
     return flat_embeds.reshape(batch_size, sequence_length, hidden_size)
@@ -306,7 +306,7 @@ def _decode_language_model(
                 break
 
         if past_key_values is None:
-            raise InternVLGenerateError("InternVL 语言模型没有返回 cache")
+            raise InternVLGenerateError("InternVL language model did not return cache")
         attention_mask = torch.cat(
             [
                 attention_mask,
@@ -456,14 +456,14 @@ def _single_token_id_from_token(tokenizer: Any, token: str) -> int | None:
 def _image_context_token_id(tokenizer: Any) -> int:
     token_id = _single_token_id_from_token(tokenizer, IMG_CONTEXT_TOKEN)
     if token_id is None:
-        raise InternVLGenerateError("InternVL tokenizer 缺少图像上下文 token")
+        raise InternVLGenerateError("InternVL tokenizer has no image context token")
     return token_id
 
 
 def _num_image_token(model: Any) -> int:
     num_image_token = getattr(model, "num_image_token", None)
     if not isinstance(num_image_token, int) or num_image_token <= 0:
-        raise InternVLGenerateError("InternVL 模型的 num_image_token 非法")
+        raise InternVLGenerateError("InternVL model has invalid num_image_token")
     return num_image_token
 
 
@@ -481,10 +481,10 @@ def _normalise_num_patches(
 def _validate_patch_count(pixel_values: Any | None, num_patches_list: list[int]) -> None:
     if pixel_values is None:
         if num_patches_list:
-            raise InternVLGenerateError("InternVL 在没有图像时收到了图像 patch 数")
+            raise InternVLGenerateError("InternVL got image patch counts without images")
         return
     if int(pixel_values.shape[0]) != sum(num_patches_list):
-        raise InternVLGenerateError("InternVL 图像 patch 数与张量不匹配")
+        raise InternVLGenerateError("InternVL image patch count does not match tensors")
 
 
 def _model_device(model: Any, pixel_values: Any | None) -> Any:

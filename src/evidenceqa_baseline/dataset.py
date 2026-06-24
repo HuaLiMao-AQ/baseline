@@ -2,60 +2,54 @@
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Iterable, TypeVar
 
 from .cache import hf_hub_cache_dir
-from .jsonl import read_jsonl
 
-SampleMode = Literal["sequential", "random"]
 DEFAULT_REPO_ID = "HuaLiMaoAQ/evidenceqa-core"
 DEFAULT_REVISION = "main"
 DEFAULT_SPLIT = "validation"
-TEMPORAL_TASK_TYPE = "temporal_qa"
+DEFAULT_TASK_TYPE = "temporal_qa"
 SPATIAL_TASK_TYPE = "spatial_grounding"
-DEFAULT_TASK_TYPE = TEMPORAL_TASK_TYPE
 DEFAULT_LIMIT = 100
 DEFAULT_SEED = 20260621
-DEFAULT_SAMPLE_MODE: SampleMode = "random"
+DEFAULT_SAMPLE_MODE = "random"
 DEFAULT_PLATFORM = "huggingface_hub"
 SampleT = TypeVar("SampleT")
 
 
-class DatasetError(ValueError):
-    """数据样本字段不满足 baseline 契约。"""
+class DatasetError(RuntimeError):
+    """split 加载或样本字段适配失败时抛出。"""
 
 
 @dataclass(frozen=True, slots=True)
-class EvidenceSample:
-    """统一样本视图。
+class DatasetSample:
+    """Runner 使用的归一化 temporal QA 样本。
 
-    Args:
-        sample_id: 样本 ID。
-        task_type: 任务类型。
-        source_dataset: 来源数据集。
-        raw: 原始 JSON 记录。
+    Attributes:
+        id: 样本唯一 ID。
+        video_id: 视频唯一 ID；数据缺失时从媒体路径兜底推导。
+        source_dataset: 样本来源数据集名称。
+        source_split: 原始或发布 split。
+        task_type: 任务类型，当前应为 ``temporal_qa``。
+        question: 问题文本。
+        gt_answer: 标准答案文本。
+        gt_temporal_evidence: 标准时间证据区间列表。
+        media_path: 数据集中引用的视频路径或 URL。
+        duration_seconds: 视频时长；数据缺失时为 ``None``。
+        raw: 原始 JSONL 行，便于调试与复查 schema。
     """
 
-    sample_id: str
-    task_type: str
-    source_dataset: str
-    raw: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class TemporalSample:
-    """Runner 使用的 temporal QA 样本。"""
-
-    sample_id: str
+    id: str
     video_id: str
     source_dataset: str
     source_split: str
@@ -67,20 +61,27 @@ class TemporalSample:
     duration_seconds: float | None
     raw: dict[str, Any]
 
-    @property
-    def id(self) -> str:
-        """兼容原 baseline 使用的样本 ID 属性。"""
 
-        return self.sample_id
+@dataclass(frozen=True, slots=True)
+class DatasetLoadResult:
+    """一次 split 读取和抽样的结果。
 
+    Attributes:
+        split_path: 本地 JSONL 路径，可以是缓存文件或本地 fixture。
+        total_rows: split 中读到的总行数。
+        temporal_rows: 筛选出的 temporal QA 行数。
+        selected_samples: 最终进入本次运行的样本。
+    """
 
-# 兼容原 baseline 的命名；新项目内部逐步使用更具体的 TemporalSample。
-DatasetSample = TemporalSample
+    split_path: Path
+    total_rows: int
+    temporal_rows: int
+    selected_samples: list[DatasetSample]
 
 
 @dataclass(frozen=True, slots=True)
 class FrameRef:
-    """Runner 使用的 frame sequence 引用。"""
+    """Runner 使用的归一化 frame sequence 引用。"""
 
     frame_id: str
     frame_index: int
@@ -112,9 +113,9 @@ class PointTrackItem:
 
 @dataclass(frozen=True, slots=True)
 class SpatialSample:
-    """Runner 使用的 spatial grounding 样本。"""
+    """Runner 使用的归一化 spatial grounding 样本。"""
 
-    sample_id: str
+    id: str
     video_id: str
     source_dataset: str
     source_split: str
@@ -127,29 +128,6 @@ class SpatialSample:
     target_ref: str | None
     raw: dict[str, Any]
 
-    @property
-    def id(self) -> str:
-        """兼容原 baseline 使用的样本 ID 属性。"""
-
-        return self.sample_id
-
-
-@dataclass(frozen=True, slots=True)
-class TemporalDatasetLoadResult:
-    """一次 split 读取和 temporal QA 抽样的结果。
-
-    Args:
-        split_path: 本地 JSONL 路径，可以是缓存文件或本地 fixture。
-        total_rows: split 中读到的总行数。
-        temporal_rows: 筛选出的 temporal QA 行数。
-        selected_samples: 最终进入本次运行的样本。
-    """
-
-    split_path: Path
-    total_rows: int
-    temporal_rows: int
-    selected_samples: list[TemporalSample]
-
 
 @dataclass(frozen=True, slots=True)
 class SpatialDatasetLoadResult:
@@ -159,10 +137,6 @@ class SpatialDatasetLoadResult:
     total_rows: int
     spatial_rows: int
     selected_samples: list[SpatialSample]
-
-
-# 兼容原 baseline 的命名；语义上对应 temporal QA 加载结果。
-DatasetLoadResult = TemporalDatasetLoadResult
 
 
 def hf_resolve_url(repo_id: str, revision: str, path: str) -> str:
@@ -188,8 +162,8 @@ def hf_resolve_url(repo_id: str, revision: str, path: str) -> str:
 def hf_auth_headers() -> dict[str, str]:
     """返回 Hugging Face 下载请求鉴权 header。
 
-    ``huggingface_hub`` 会优先读取本机 login 状态；这里保留 HTTPS fallback，
-    让没有安装 SDK 的环境仍然能下载公开数据或使用 ``HF_TOKEN``。
+    ``huggingface_hub`` 会优先读取本机 login 状态；该 header 只服务于无 SDK 的
+    HTTPS fallback。
     """
 
     token = (
@@ -209,7 +183,17 @@ def cached_split_path(
     split: str,
     cache_dir: Path,
 ) -> Path:
-    """返回 split JSONL 的本地缓存路径。"""
+    """返回 split JSONL 的本地缓存路径。
+
+    Args:
+        repo_id: Hugging Face dataset repo ID。
+        revision: 固定 revision 或 tag。
+        split: split 名称，例如 ``validation``。
+        cache_dir: baseline 缓存根目录。
+
+    Returns:
+        该 split JSONL 应写入或复用的本地路径。
+    """
 
     safe_repo = repo_id.replace("/", "--")
     safe_revision = revision.replace("/", "--")
@@ -256,7 +240,8 @@ def download_hf_dataset_file(
 
     url = hf_resolve_url(repo_id, revision, file_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers=hf_auth_headers())
+    headers = hf_auth_headers()
+    request = urllib.request.Request(url, headers=headers)
 
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
@@ -275,24 +260,56 @@ def download_hf_dataset_file(
     except urllib.error.HTTPError as exc:
         if exc.code in {401, 403}:
             raise DatasetError(
-                "Hugging Face 数据文件访问被拒绝；请先执行 `hf auth login`，"
-                "或设置有读取权限的 HF_TOKEN。"
+                "Hugging Face access denied for dataset file. "
+                "Run `hf auth login` or set HF_TOKEN with read access."
             ) from exc
         raise DatasetError(
-            f"下载 Hugging Face 文件 {file_path!r} 失败: HTTP {exc.code}"
+            f"failed to download Hugging Face file {file_path!r}: HTTP {exc.code}"
         ) from exc
     except OSError as exc:
         raise DatasetError(
-            f"下载 Hugging Face 文件 {file_path!r} 失败: {exc}。"
-            "当前环境无法访问 Hugging Face；请检查网络/代理，或先下载 split JSONL 后"
-            "通过 --local-jsonl /path/to/validation.jsonl 运行。"
+            f"failed to download Hugging Face file {file_path!r}: {exc}. "
+            "当前环境无法访问 Hugging Face；请检查网络/代理，或先下载 split JSONL 后通过 "
+            "--local-jsonl /path/to/validation.jsonl 运行。"
         ) from exc
 
     if tmp_path.stat().st_size <= 0:
         tmp_path.unlink(missing_ok=True)
-        raise DatasetError(f"下载到的 Hugging Face 文件为空: {file_path}")
+        raise DatasetError(f"downloaded Hugging Face file is empty: {file_path}")
     tmp_path.replace(target_path)
     return target_path
+
+
+def _download_hf_dataset_file_with_hub(
+    *,
+    repo_id: str,
+    revision: str,
+    file_path: str,
+    cache_dir: Path,
+) -> Path | None:
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        return None
+
+    try:
+        downloaded = hf_hub_download(
+            repo_id=repo_id,
+            filename=file_path,
+            repo_type="dataset",
+            revision=revision,
+            cache_dir=str(hf_hub_cache_dir(cache_dir)),
+        )
+    except Exception as exc:  # noqa: BLE001 - SDK error needs a clean CLI message.
+        raise DatasetError(
+            f"Hugging Face Hub failed to download {file_path!r} from {repo_id}: {exc}"
+        ) from exc
+    path = Path(downloaded)
+    if path.exists() and path.stat().st_size > 0:
+        return path
+    raise DatasetError(
+        f"Hugging Face Hub returned an empty or missing file for {file_path!r}: {path}"
+    )
 
 
 def download_split_jsonl(
@@ -303,7 +320,21 @@ def download_split_jsonl(
     cache_dir: Path,
     force: bool = False,
 ) -> Path:
-    """只下载指定 split 的 JSONL 到本地缓存。"""
+    """只下载指定 split 的 JSONL 到本地缓存。
+
+    Args:
+        repo_id: Hugging Face dataset repo ID。
+        revision: 固定 revision 或 tag。
+        split: split 名称，例如 ``validation``。
+        cache_dir: baseline 缓存根目录。
+        force: 是否忽略现有缓存并重新下载。
+
+    Returns:
+        下载后或已存在的本地 JSONL 路径。
+
+    Raises:
+        DatasetError: 网络、鉴权或下载失败时抛出。
+    """
 
     return download_hf_dataset_file(
         repo_id=repo_id,
@@ -320,110 +351,139 @@ def download_split_jsonl(
     )
 
 
-def load_samples(path: Path) -> list[EvidenceSample]:
-    """读取 EvidenceQA JSONL 并转换为轻量样本对象。"""
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """读取 JSONL 文件。
 
-    samples: list[EvidenceSample] = []
-    for row in read_jsonl(path):
-        sample_id = str(row.get("id") or row.get("sample_id") or "")
-        if not sample_id:
-            raise ValueError("样本缺少 id")
-        samples.append(
-            EvidenceSample(
-                sample_id=sample_id,
-                task_type=str(row.get("task_type") or row.get("task") or "unknown"),
-                source_dataset=str(row.get("source_dataset") or row.get("dataset") or "unknown"),
-                raw=row,
-            )
-        )
-    return samples
+    Args:
+        path: JSONL 文件路径。
+
+    Returns:
+        每行 JSON object 组成的列表。
+
+    Raises:
+        DatasetError: 行格式不是 JSON object 或无法解析时抛出。
+    """
+
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                row = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise DatasetError(f"{path}:{line_number}: invalid JSONL row") from exc
+            if not isinstance(row, dict):
+                raise DatasetError(f"{path}:{line_number}: row must be an object")
+            rows.append(row)
+    return rows
 
 
-def adapt_temporal_sample(sample: EvidenceSample | dict[str, Any]) -> TemporalSample:
-    """把原始样本适配成 temporal QA 契约。"""
+def adapt_temporal_sample(row: dict[str, Any]) -> DatasetSample:
+    """把冻结数据集行适配成最小样本契约。
 
-    row = _sample_raw(sample)
-    sample_id = _sample_id(row)
-    question = _question(row, sample_id=sample_id)
-    media_path, duration_seconds = _media(row)
-    return TemporalSample(
-        sample_id=sample_id,
-        video_id=_video_id(row, media_path=media_path),
-        source_dataset=_source_dataset(row),
-        source_split=_source_split(row),
-        task_type=str(row.get("task_type") or row.get("task") or TEMPORAL_TASK_TYPE),
+    Args:
+        row: 原始 JSONL 行。
+
+    Returns:
+        归一化后的 temporal QA 样本。
+
+    Raises:
+        DatasetError: 必需字段缺失或字段类型不符合预期时抛出。
+    """
+
+    task_type = str(row.get("task") or row.get("task_type") or "")
+    sample_id = str(row.get("id") or row.get("qa_id") or "")
+    if not sample_id:
+        raise DatasetError("sample is missing id/qa_id")
+
+    question = row.get("question")
+    if not isinstance(question, str) or not question.strip():
+        raise DatasetError(f"{sample_id}: missing question")
+
+    source_dataset = _extract_source_dataset(row)
+    source_split = _extract_source_split(row)
+    gt_answer = _extract_answer(row)
+    gt_temporal_evidence = _extract_temporal_evidence(row)
+    media_path, duration_seconds = _extract_media(row)
+    video_id = _extract_video_id(row, media_path)
+
+    return DatasetSample(
+        id=sample_id,
+        video_id=video_id,
+        source_dataset=source_dataset,
+        source_split=source_split,
+        task_type=task_type,
         question=question,
-        gt_answer=_answer(row),
-        gt_temporal_evidence=_temporal_evidence(row),
+        gt_answer=gt_answer,
+        gt_temporal_evidence=gt_temporal_evidence,
         media_path=media_path,
         duration_seconds=duration_seconds,
         raw=row,
     )
 
 
-def adapt_spatial_sample(sample: EvidenceSample | dict[str, Any]) -> SpatialSample:
-    """把原始样本适配成 spatial grounding 契约。"""
+def adapt_spatial_sample(row: dict[str, Any]) -> SpatialSample:
+    """把冻结数据集行适配成 spatial grounding 样本契约。"""
 
-    row = _sample_raw(sample)
-    sample_id = _sample_id(row)
-    question = _question(row, sample_id=sample_id)
+    task_type = str(row.get("task") or row.get("task_type") or "")
+    sample_id = str(row.get("id") or row.get("qa_id") or "")
+    if not sample_id:
+        raise DatasetError("sample is missing id/qa_id")
+
+    question = row.get("question")
+    if not isinstance(question, str) or not question.strip():
+        raise DatasetError(f"{sample_id}: missing question")
+
+    source_dataset = _extract_source_dataset(row)
+    source_split = _extract_source_split(row)
     media = row.get("media")
     if not isinstance(media, dict):
-        raise DatasetError(f"{sample_id}: 缺少 media object")
-    video_id = _video_id(row, media_path=None)
+        raise DatasetError(f"{sample_id}: missing media object")
+    video_id = _extract_video_id(row, None)
+    frames = _extract_frames(media, sample_id=sample_id, video_id=video_id)
     target = row.get("target")
     if not isinstance(target, dict):
-        raise DatasetError(f"{sample_id}: 缺少 spatial target")
+        raise DatasetError(f"{sample_id}: missing spatial target")
+    box_track = _extract_box_track(target, sample_id=sample_id, video_id=video_id)
+    point_track = _extract_point_track(target, sample_id=sample_id, video_id=video_id)
+    reference_mask_path = target.get("reference_mask_path")
+    if reference_mask_path is not None and not isinstance(reference_mask_path, str):
+        raise DatasetError(f"{sample_id}: reference_mask_path must be a string")
+
     return SpatialSample(
-        sample_id=sample_id,
+        id=sample_id,
         video_id=video_id,
-        source_dataset=_source_dataset(row),
-        source_split=_source_split(row),
-        task_type=str(row.get("task_type") or row.get("task") or SPATIAL_TASK_TYPE),
+        source_dataset=source_dataset,
+        source_split=source_split,
+        task_type=task_type,
         question=question,
-        frames=_frames(media, sample_id=sample_id, video_id=video_id),
-        gt_box_track=_box_track(target, sample_id=sample_id, video_id=video_id),
-        gt_point_track=_point_track(target, sample_id=sample_id, video_id=video_id),
-        reference_mask_path=_optional_string(target.get("reference_mask_path")),
-        target_ref=_target_ref(row),
+        frames=frames,
+        gt_box_track=box_track,
+        gt_point_track=point_track,
+        reference_mask_path=reference_mask_path,
+        target_ref=_extract_target_ref(row),
         raw=row,
     )
-
-
-def filter_temporal_samples(samples: list[EvidenceSample]) -> list[TemporalSample]:
-    """筛选并适配 temporal QA 样本。"""
-
-    return [
-        adapt_temporal_sample(sample)
-        for sample in samples
-        if sample.task_type == TEMPORAL_TASK_TYPE
-    ]
-
-
-def filter_spatial_samples(samples: list[EvidenceSample]) -> list[SpatialSample]:
-    """筛选并适配 spatial grounding 样本。"""
-
-    return [
-        adapt_spatial_sample(sample)
-        for sample in samples
-        if sample.task_type == SPATIAL_TASK_TYPE
-    ]
-
-
-def filter_by_task(samples: list[EvidenceSample], task_type: str) -> list[EvidenceSample]:
-    """按任务类型筛选样本。"""
-
-    return [sample for sample in samples if sample.task_type == task_type]
 
 
 def filter_temporal_qa(
     rows: Iterable[dict[str, Any]],
     *,
-    task_type: str = TEMPORAL_TASK_TYPE,
-) -> list[TemporalSample]:
-    """筛选 temporal QA 行并完成字段适配。"""
+    task_type: str = DEFAULT_TASK_TYPE,
+) -> list[DatasetSample]:
+    """筛选 temporal QA 行并完成字段适配。
 
-    samples: list[TemporalSample] = []
+    Args:
+        rows: 原始 JSONL 行迭代器。
+        task_type: 需要筛选的任务类型。
+
+    Returns:
+        已归一化的 temporal QA 样本列表。
+    """
+
+    samples: list[DatasetSample] = []
     for row in rows:
         row_task = row.get("task") or row.get("task_type")
         if row_task != task_type:
@@ -453,23 +513,36 @@ def select_samples(
     *,
     limit: int | None,
     seed: int,
-    mode: SampleMode | None = None,
-    sample_mode: SampleMode | None = None,
+    sample_mode: str,
 ) -> list[SampleT]:
-    """稳定选择实验样本。"""
+    """按固定规则选择可复现样本子集。
 
-    selected_mode = mode or sample_mode or DEFAULT_SAMPLE_MODE
+    Args:
+        samples: 候选样本列表。
+        limit: 最大样本数；为 ``None`` 时保留全部。
+        seed: 随机抽样 seed。
+        sample_mode: ``random`` 或 ``sequential``。
+
+    Returns:
+        最终样本列表。
+
+    Raises:
+        DatasetError: 参数非法时抛出。
+    """
+
+    if limit is not None and limit < 0:
+        raise DatasetError("limit must be non-negative")
+    if sample_mode not in {"random", "sequential"}:
+        raise DatasetError("sample_mode must be 'random' or 'sequential'")
+
     if limit is None or limit >= len(samples):
-        return list(samples)
-    if limit < 0:
-        raise ValueError("limit 不能为负数")
-    if selected_mode == "sequential":
-        return list(samples[:limit])
-    if selected_mode == "random":
+        selected = list(samples)
+    elif sample_mode == "sequential":
+        selected = list(samples[:limit])
+    else:
         rng = random.Random(seed)
-        indices = sorted(rng.sample(range(len(samples)), limit))
-        return [samples[index] for index in indices]
-    raise ValueError(f"未知 sample mode: {selected_mode}")
+        selected = rng.sample(samples, limit)
+    return selected
 
 
 def load_temporal_samples(
@@ -477,13 +550,13 @@ def load_temporal_samples(
     repo_id: str = DEFAULT_REPO_ID,
     revision: str = DEFAULT_REVISION,
     split: str = DEFAULT_SPLIT,
-    task_type: str = TEMPORAL_TASK_TYPE,
+    task_type: str = DEFAULT_TASK_TYPE,
     limit: int | None = DEFAULT_LIMIT,
     seed: int = DEFAULT_SEED,
-    sample_mode: SampleMode = DEFAULT_SAMPLE_MODE,
+    sample_mode: str = DEFAULT_SAMPLE_MODE,
     cache_dir: Path = Path(".cache/evidenceqa-baseline"),
     local_jsonl: Path | None = None,
-) -> TemporalDatasetLoadResult:
+) -> DatasetLoadResult:
     """加载、筛选并抽样 temporal QA 数据。
 
     Args:
@@ -499,6 +572,9 @@ def load_temporal_samples(
 
     Returns:
         split 读取、筛选和抽样结果。
+
+    Raises:
+        DatasetError: split 读取、下载或字段适配失败时抛出。
     """
 
     split_path = (
@@ -519,9 +595,9 @@ def load_temporal_samples(
         temporal_samples,
         limit=limit,
         seed=seed,
-        mode=sample_mode,
+        sample_mode=sample_mode,
     )
-    return TemporalDatasetLoadResult(
+    return DatasetLoadResult(
         split_path=split_path,
         total_rows=len(rows),
         temporal_rows=len(temporal_samples),
@@ -537,7 +613,7 @@ def load_spatial_samples(
     task_type: str = SPATIAL_TASK_TYPE,
     limit: int | None = DEFAULT_LIMIT,
     seed: int = DEFAULT_SEED,
-    sample_mode: SampleMode = DEFAULT_SAMPLE_MODE,
+    sample_mode: str = DEFAULT_SAMPLE_MODE,
     cache_dir: Path = Path(".cache/evidenceqa-baseline"),
     local_jsonl: Path | None = None,
 ) -> SpatialDatasetLoadResult:
@@ -561,7 +637,7 @@ def load_spatial_samples(
         spatial_samples,
         limit=limit,
         seed=seed,
-        mode=sample_mode,
+        sample_mode=sample_mode,
     )
     return SpatialDatasetLoadResult(
         split_path=split_path,
@@ -571,276 +647,10 @@ def load_spatial_samples(
     )
 
 
-def _download_hf_dataset_file_with_hub(
-    *,
-    repo_id: str,
-    revision: str,
-    file_path: str,
-    cache_dir: Path,
-) -> Path | None:
-    try:
-        from huggingface_hub import hf_hub_download
-    except ImportError:
-        return None
-
-    try:
-        downloaded = hf_hub_download(
-            repo_id=repo_id,
-            filename=file_path,
-            repo_type="dataset",
-            revision=revision,
-            cache_dir=str(hf_hub_cache_dir(cache_dir)),
-        )
-    except Exception as exc:  # noqa: BLE001 - SDK 异常需要转成清晰 CLI 信息。
-        raise DatasetError(
-            f"Hugging Face Hub 下载 {repo_id}/{file_path!r} 失败: {exc}"
-        ) from exc
-    path = Path(downloaded)
-    if path.exists() and path.stat().st_size > 0:
-        return path
-    raise DatasetError(
-        f"Hugging Face Hub 返回了空文件或缺失文件: {file_path!r}: {path}"
-    )
-
-
-def _sample_raw(sample: EvidenceSample | dict[str, Any]) -> dict[str, Any]:
-    if isinstance(sample, EvidenceSample):
-        return sample.raw
-    return sample
-
-
-def _sample_id(row: dict[str, Any]) -> str:
-    sample_id = str(row.get("id") or row.get("sample_id") or row.get("qa_id") or "")
-    if not sample_id:
-        raise DatasetError("样本缺少 id")
-    return sample_id
-
-
-def _question(row: dict[str, Any], *, sample_id: str) -> str:
-    question = row.get("question")
-    if not isinstance(question, str) or not question.strip():
-        raise DatasetError(f"{sample_id}: 缺少 question")
-    return question
-
-
-def _source_dataset(row: dict[str, Any]) -> str:
-    value = row.get("source_dataset") or row.get("dataset")
-    if value is None and isinstance(row.get("source"), dict):
-        value = row["source"].get("dataset")
-    if isinstance(value, str) and value.strip():
-        return value
-    raise DatasetError("样本缺少 source_dataset")
-
-
-def _source_split(row: dict[str, Any]) -> str:
-    value = row.get("source_split") or row.get("split")
-    if value is None and isinstance(row.get("source"), dict):
-        value = row["source"].get("split")
-    return value if isinstance(value, str) and value.strip() else "unknown"
-
-
-def _video_id(row: dict[str, Any], *, media_path: str | None) -> str:
-    value = row.get("video_id")
-    media = row.get("media")
-    if value is None and isinstance(media, dict):
-        value = media.get("video_id")
-        if value is None and isinstance(media.get("raw"), dict):
-            value = media["raw"].get("id") or media["raw"].get("video_id")
-    if value is None and media_path:
-        value = Path(media_path).stem
-    if isinstance(value, str) and value.strip():
-        return value
-    raise DatasetError(f"{_sample_id(row)}: 缺少 video_id")
-
-
-def _answer(row: dict[str, Any]) -> str:
-    answer = row.get("gt_answer") or row.get("answer")
-    if isinstance(answer, str):
-        return answer
-    if isinstance(answer, dict):
-        for key in ("text", "canonical", "value"):
-            value = answer.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-    raise DatasetError(f"{_sample_id(row)}: 缺少 answer")
-
-
-def _temporal_evidence(row: dict[str, Any]) -> list[list[float]]:
-    for key in ("gt_temporal_evidence", "temporal_evidence"):
-        value = row.get(key)
-        if value is not None:
-            return _intervals(value)
-    evidence = row.get("evidence")
-    if isinstance(evidence, dict) and evidence.get("segments") is not None:
-        return _intervals(evidence["segments"])
-    if isinstance(evidence, list):
-        for item in evidence:
-            if isinstance(item, dict) and item.get("type") == "temporal_segments":
-                return _intervals(item.get("segments", []))
-    raise DatasetError(f"{_sample_id(row)}: 缺少 temporal evidence")
-
-
-def _intervals(value: Any) -> list[list[float]]:
-    if not isinstance(value, list):
-        raise DatasetError("temporal evidence 必须是列表")
-    intervals: list[list[float]] = []
-    for item in value:
-        if isinstance(item, dict):
-            start = item.get("start_seconds", item.get("start"))
-            end = item.get("end_seconds", item.get("end"))
-        elif isinstance(item, list | tuple) and len(item) == 2:
-            start, end = item
-        else:
-            raise DatasetError("temporal evidence 每项必须是区间")
-        if not isinstance(start, int | float) or not isinstance(end, int | float):
-            raise DatasetError("temporal evidence 边界必须是数值")
-        intervals.append([float(start), float(end)])
-    return intervals
-
-
-def _media(row: dict[str, Any]) -> tuple[str | None, float | None]:
-    media = row.get("media")
-    if isinstance(media, dict) and isinstance(media.get("raw"), dict):
-        media = media["raw"]
-
-    media_path: str | None = None
-    duration_seconds: float | None = None
-    if isinstance(media, dict):
-        value = media.get("path") or media.get("url")
-        if isinstance(value, str) and value.strip():
-            media_path = value
-        duration = media.get("duration_seconds") or media.get("duration")
-        if isinstance(duration, int | float):
-            duration_seconds = float(duration)
-    return media_path, duration_seconds
-
-
-def _frames(
-    media: dict[str, Any],
-    *,
-    sample_id: str,
-    video_id: str,
-) -> list[FrameRef]:
-    frames = media.get("frames")
-    if not isinstance(frames, list) or not frames:
-        raise DatasetError(f"{sample_id}: spatial sample 没有 frames")
-    result: list[FrameRef] = []
-    for position, item in enumerate(frames):
-        if not isinstance(item, dict):
-            raise DatasetError(f"{sample_id}: frame 必须是 object")
-        path = item.get("path")
-        if not isinstance(path, str) or not path.strip():
-            raise DatasetError(f"{sample_id}: frame 缺少 path")
-        frame_index = item.get("frame_index", position)
-        if not isinstance(frame_index, int):
-            raise DatasetError(f"{sample_id}: frame_index 必须是整数")
-        result.append(
-            FrameRef(
-                frame_id=str(item.get("frame_id") or frame_index),
-                frame_index=frame_index,
-                path=path,
-                video_id=str(item.get("video_id") or video_id),
-            )
-        )
-    return result
-
-
-def _box_track(
-    target: dict[str, Any],
-    *,
-    sample_id: str,
-    video_id: str,
-) -> list[BoxTrackItem]:
-    value = target.get("box_track")
-    if not isinstance(value, list) or not value:
-        raise DatasetError(f"{sample_id}: 缺少 target.box_track")
-    result: list[BoxTrackItem] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise DatasetError(f"{sample_id}: box_track item 必须是 object")
-        result.append(
-            BoxTrackItem(
-                frame_id=str(item.get("frame_id") or item.get("frame_index")),
-                frame_index=_frame_index(item, sample_id=sample_id),
-                video_id=str(item.get("video_id") or video_id),
-                box=_numbers(item.get("box"), expected=4, label="box"),
-                coordinate_space=str(item.get("coordinate_space") or "normalized_0_1"),
-            )
-        )
-    return result
-
-
-def _point_track(
-    target: dict[str, Any],
-    *,
-    sample_id: str,
-    video_id: str,
-) -> list[PointTrackItem]:
-    value = target.get("point_track")
-    if not isinstance(value, list) or not value:
-        raise DatasetError(f"{sample_id}: 缺少 target.point_track")
-    result: list[PointTrackItem] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise DatasetError(f"{sample_id}: point_track item 必须是 object")
-        result.append(
-            PointTrackItem(
-                frame_id=str(item.get("frame_id") or item.get("frame_index")),
-                frame_index=_frame_index(item, sample_id=sample_id),
-                video_id=str(item.get("video_id") or video_id),
-                point=_numbers(item.get("point"), expected=2, label="point"),
-                coordinate_space=str(item.get("coordinate_space") or "normalized_0_1"),
-            )
-        )
-    return result
-
-
-def _frame_index(item: dict[str, Any], *, sample_id: str) -> int:
-    frame_index = item.get("frame_index")
-    if not isinstance(frame_index, int):
-        raise DatasetError(f"{sample_id}: target frame_index 必须是整数")
-    return frame_index
-
-
-def _numbers(value: Any, *, expected: int, label: str) -> list[float]:
-    if not isinstance(value, list) or len(value) != expected:
-        raise DatasetError(f"{label} 必须包含 {expected} 个数值")
-    result: list[float] = []
-    for item in value:
-        if not isinstance(item, int | float):
-            raise DatasetError(f"{label} 坐标必须是数值")
-        result.append(float(item))
-    return result
-
-
-def _optional_string(value: Any) -> str | None:
-    return value if isinstance(value, str) and value.strip() else None
-
-
-def _target_ref(row: dict[str, Any]) -> str | None:
-    target = row.get("target")
-    if isinstance(target, dict):
-        for key in ("text", "ref", "expression", "target_ref"):
-            value = target.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-    metadata = row.get("metadata")
-    if isinstance(metadata, dict):
-        semantic = metadata.get("semantic")
-        if isinstance(semantic, dict):
-            answer = semantic.get("answer")
-            if isinstance(answer, dict):
-                for key in ("canonical", "text", "value"):
-                    value = answer.get(key)
-                    if isinstance(value, str) and value.strip():
-                        return value
-    return None
-
-
 def _resolve_local_media_paths(
-    samples: list[TemporalSample],
+    samples: list[DatasetSample],
     local_jsonl: Path,
-) -> list[TemporalSample]:
+) -> list[DatasetSample]:
     """把本地 JSONL 中的相对媒体路径解析到 JSONL 所在目录。
 
     远程数据集里的媒体路径本来就是 repo-relative；但用户传入 ``--local-jsonl``
@@ -849,7 +659,7 @@ def _resolve_local_media_paths(
     """
 
     base_dir = local_jsonl.resolve().parent
-    resolved: list[TemporalSample] = []
+    resolved: list[DatasetSample] = []
     for sample in samples:
         media_path = sample.media_path
         if (
@@ -878,16 +688,17 @@ def _resolve_local_spatial_paths(
     base_dir = local_jsonl.resolve().parent
     resolved: list[SpatialSample] = []
     for sample in samples:
-        frames = [
-            replace(frame, path=_resolve_local_ref(frame.path, base_dir))
-            for frame in sample.frames
-        ]
+        frames: list[FrameRef] = []
+        for frame in sample.frames:
+            frames.append(replace(frame, path=_resolve_local_ref(frame.path, base_dir)))
         mask_path = (
             _resolve_local_ref(sample.reference_mask_path, base_dir)
             if sample.reference_mask_path
             else None
         )
-        resolved.append(replace(sample, frames=frames, reference_mask_path=mask_path))
+        resolved.append(
+            replace(sample, frames=frames, reference_mask_path=mask_path)
+        )
     return resolved
 
 
@@ -902,3 +713,235 @@ def _resolve_local_ref(media_ref: str, base_dir: Path) -> str:
     if local_candidate.exists():
         return str(local_candidate)
     return media_ref
+
+
+def _extract_source_dataset(row: dict[str, Any]) -> str:
+    value = row.get("source_dataset") or row.get("dataset")
+    if value is None and isinstance(row.get("source"), dict):
+        value = row["source"].get("dataset")
+    if not isinstance(value, str) or not value.strip():
+        raise DatasetError("sample is missing source dataset")
+    return value
+
+
+def _extract_source_split(row: dict[str, Any]) -> str:
+    value = row.get("source_split") or row.get("split")
+    if value is None and isinstance(row.get("source"), dict):
+        value = row["source"].get("split")
+    if not isinstance(value, str) or not value.strip():
+        return "unknown"
+    return value
+
+
+def _extract_video_id(row: dict[str, Any], media_path: str | None) -> str:
+    value = row.get("video_id")
+    media = row.get("media")
+    if value is None and isinstance(media, dict):
+        value = media.get("video_id")
+        if value is None and isinstance(media.get("raw"), dict):
+            value = media["raw"].get("id") or media["raw"].get("video_id")
+    if value is None and media_path:
+        value = Path(media_path).stem
+    if isinstance(value, str) and value.strip():
+        return value
+    raise DatasetError(f"{row.get('id') or row.get('qa_id')}: missing video_id")
+
+
+def _extract_frames(
+    media: dict[str, Any],
+    *,
+    sample_id: str,
+    video_id: str,
+) -> list[FrameRef]:
+    frames = media.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise DatasetError(f"{sample_id}: spatial sample has no frames")
+    result: list[FrameRef] = []
+    for position, item in enumerate(frames):
+        if not isinstance(item, dict):
+            raise DatasetError(f"{sample_id}: frame item must be an object")
+        path = item.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise DatasetError(f"{sample_id}: frame item is missing path")
+        frame_index = item.get("frame_index", position)
+        if not isinstance(frame_index, int):
+            raise DatasetError(f"{sample_id}: frame_index must be an integer")
+        frame_id = item.get("frame_id")
+        result.append(
+            FrameRef(
+                frame_id=str(frame_id if frame_id is not None else frame_index),
+                frame_index=frame_index,
+                path=path,
+                video_id=str(item.get("video_id") or video_id),
+            )
+        )
+    return result
+
+
+def _extract_box_track(
+    target: dict[str, Any],
+    *,
+    sample_id: str,
+    video_id: str,
+) -> list[BoxTrackItem]:
+    value = target.get("box_track")
+    if not isinstance(value, list) or not value:
+        raise DatasetError(f"{sample_id}: missing target.box_track")
+    result: list[BoxTrackItem] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise DatasetError(f"{sample_id}: box_track item must be an object")
+        box = item.get("box")
+        if not isinstance(box, list) or len(box) != 4:
+            raise DatasetError(f"{sample_id}: box must contain four numbers")
+        result.append(
+            BoxTrackItem(
+                frame_id=str(item.get("frame_id") or item.get("frame_index")),
+                frame_index=_extract_frame_index(item, sample_id=sample_id),
+                video_id=str(item.get("video_id") or video_id),
+                box=_coerce_normalized_numbers(box, expected=4, label="box"),
+                coordinate_space=str(item.get("coordinate_space") or "normalized_0_1"),
+            )
+        )
+    return result
+
+
+def _extract_point_track(
+    target: dict[str, Any],
+    *,
+    sample_id: str,
+    video_id: str,
+) -> list[PointTrackItem]:
+    value = target.get("point_track")
+    if not isinstance(value, list) or not value:
+        raise DatasetError(f"{sample_id}: missing target.point_track")
+    result: list[PointTrackItem] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise DatasetError(f"{sample_id}: point_track item must be an object")
+        point = item.get("point")
+        if not isinstance(point, list) or len(point) != 2:
+            raise DatasetError(f"{sample_id}: point must contain two numbers")
+        result.append(
+            PointTrackItem(
+                frame_id=str(item.get("frame_id") or item.get("frame_index")),
+                frame_index=_extract_frame_index(item, sample_id=sample_id),
+                video_id=str(item.get("video_id") or video_id),
+                point=_coerce_normalized_numbers(point, expected=2, label="point"),
+                coordinate_space=str(item.get("coordinate_space") or "normalized_0_1"),
+            )
+        )
+    return result
+
+
+def _extract_frame_index(item: dict[str, Any], *, sample_id: str) -> int:
+    frame_index = item.get("frame_index")
+    if not isinstance(frame_index, int):
+        raise DatasetError(f"{sample_id}: target frame_index must be an integer")
+    return frame_index
+
+
+def _coerce_normalized_numbers(
+    value: list[Any],
+    *,
+    expected: int,
+    label: str,
+) -> list[float]:
+    if len(value) != expected:
+        raise DatasetError(f"{label} must contain {expected} numbers")
+    result: list[float] = []
+    for item in value:
+        if not isinstance(item, int | float):
+            raise DatasetError(f"{label} coordinates must be numeric")
+        result.append(float(item))
+    return result
+
+
+def _extract_target_ref(row: dict[str, Any]) -> str | None:
+    target = row.get("target")
+    if isinstance(target, dict):
+        for key in ("text", "ref", "expression", "target_ref"):
+            value = target.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    metadata = row.get("metadata")
+    if isinstance(metadata, dict):
+        semantic = metadata.get("semantic")
+        if isinstance(semantic, dict):
+            answer = semantic.get("answer")
+            if isinstance(answer, dict):
+                for key in ("canonical", "text", "value"):
+                    value = answer.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value
+    return None
+
+
+def _extract_answer(row: dict[str, Any]) -> str:
+    answer = row.get("answer")
+    if isinstance(answer, str):
+        return answer
+    if isinstance(answer, dict):
+        for key in ("text", "canonical", "answer", "value"):
+            value = answer.get(key)
+            if isinstance(value, str):
+                return value
+    value = row.get("gt_answer")
+    if isinstance(value, str):
+        return value
+    raise DatasetError(f"{row.get('id') or row.get('qa_id')}: missing text answer")
+
+
+def _extract_temporal_evidence(row: dict[str, Any]) -> list[list[float]]:
+    for key in ("gt_temporal_evidence", "temporal_evidence"):
+        value = row.get(key)
+        if value is not None:
+            return _coerce_intervals(value)
+
+    evidence = row.get("evidence")
+    if isinstance(evidence, dict):
+        segments = evidence.get("segments")
+        if segments is not None:
+            return _coerce_intervals(segments)
+    if isinstance(evidence, list):
+        for item in evidence:
+            if isinstance(item, dict) and item.get("type") == "temporal_segments":
+                return _coerce_intervals(item.get("segments", []))
+    raise DatasetError(
+        f"{row.get('id') or row.get('qa_id')}: missing temporal evidence"
+    )
+
+
+def _coerce_intervals(value: Any) -> list[list[float]]:
+    if not isinstance(value, list):
+        raise DatasetError("temporal evidence must be a list")
+    intervals: list[list[float]] = []
+    for item in value:
+        if isinstance(item, dict):
+            start = item.get("start_seconds", item.get("start"))
+            end = item.get("end_seconds", item.get("end"))
+        elif isinstance(item, list | tuple) and len(item) == 2:
+            start, end = item
+        else:
+            raise DatasetError("each temporal evidence item must be a pair")
+        if not isinstance(start, int | float) or not isinstance(end, int | float):
+            raise DatasetError("temporal evidence bounds must be numeric")
+        intervals.append([float(start), float(end)])
+    return intervals
+
+
+def _extract_media(row: dict[str, Any]) -> tuple[str | None, float | None]:
+    media = row.get("media")
+    if isinstance(media, dict) and isinstance(media.get("raw"), dict):
+        media = media["raw"]
+
+    media_path: str | None = None
+    duration_seconds: float | None = None
+    if isinstance(media, dict):
+        value = media.get("path") or media.get("url")
+        if isinstance(value, str) and value.strip():
+            media_path = value
+        duration = media.get("duration_seconds") or media.get("duration")
+        if isinstance(duration, int | float):
+            duration_seconds = float(duration)
+    return media_path, duration_seconds

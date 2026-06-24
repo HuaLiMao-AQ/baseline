@@ -1,4 +1,4 @@
-"""答案、时间证据和空间证据基线指标。"""
+"""答案与 temporal grounding baseline 指标。"""
 
 from __future__ import annotations
 
@@ -179,13 +179,13 @@ def summarize_predictions(
     include_groups: bool = True,
     include_temporal_metrics: bool = True,
 ) -> dict[str, Any]:
-    """从逐条预测聚合基线指标。
+    """从逐条预测聚合 baseline 指标。
 
     Args:
         records: ``predictions.jsonl`` 中的逐条预测记录。
         cuda_peak_memory_bytes: CUDA 峰值显存字节数。
         include_groups: 是否额外计算 ``source_dataset`` 分组指标。
-        include_temporal_metrics: 纯回答阶段设为 ``False``。
+        include_temporal_metrics: 纯回答 baseline 设为 ``False``。
 
     Returns:
         可写入 ``summary.json`` 的指标字典。
@@ -299,23 +299,6 @@ def summarize_predictions(
     return summary
 
 
-def summarize_temporal_predictions(
-    records: list[dict[str, Any]],
-    *,
-    include_temporal_metrics: bool,
-    cuda_peak_memory_bytes: int | None = None,
-    include_groups: bool = True,
-) -> dict[str, Any]:
-    """兼容早期新项目骨架的 temporal summary 名称。"""
-
-    return summarize_predictions(
-        records,
-        cuda_peak_memory_bytes=cuda_peak_memory_bytes,
-        include_groups=include_groups,
-        include_temporal_metrics=include_temporal_metrics,
-    )
-
-
 def point_in_box(point: list[float] | tuple[float, float], box: list[float]) -> float:
     """判断 normalized point 是否落在 normalized box 内。"""
 
@@ -350,7 +333,7 @@ def summarize_spatial_predictions(
     cuda_peak_memory_bytes: int | None = None,
     include_groups: bool = True,
 ) -> dict[str, Any]:
-    """从逐条预测聚合空间定位基线指标。"""
+    """从逐条预测聚合 spatial grounding baseline 指标。"""
 
     total = len(records)
     inference_success = [

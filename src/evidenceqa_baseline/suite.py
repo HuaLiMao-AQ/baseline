@@ -1,4 +1,4 @@
-"""本地基线实验编排。"""
+"""本地 baseline 实验编排。"""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ Target = Literal[
 
 @dataclass(frozen=True, slots=True)
 class SuiteResult:
-    """一次基线 suite 的输出。"""
+    """一次 baseline suite 的输出。"""
 
     output_dir: Path
     summary_path: Path
@@ -63,15 +63,15 @@ def run_suite(
     dataset_dir: Path | None = None,
     models: list[str] | None = None,
 ) -> SuiteResult:
-    """运行带 smoke gate 的基线 suite。
+    """运行 smoke-gated baseline suite。
 
     ``target=suite`` 或 ``target=train`` 时先跑 smoke；smoke 的推理、解析和导出
-    都通过后，继续跑 answer-only、grounded 与 ref 三个正式基线。
+    都通过后，继续跑 answer-only、grounded 与 ref 三个正式 baseline。
     其他 target 只运行 validation split 上的指定阶段。
     """
 
     if target not in TARGETS:
-        raise ValueError(f"target 必须是 {TARGETS!r} 之一")
+        raise ValueError(f"target must be one of {TARGETS!r}")
 
     resolved_dataset_dir = _effective_dataset_dir(dataset_dir)
     model_ids = _normalize_models(config.model, models)
@@ -156,7 +156,7 @@ def dataset_jsonl_for_split(dataset_dir: Path, split: str) -> Path:
         if path.exists():
             return path
     raise FileNotFoundError(
-        f"在 dataset_dir={dataset_dir} 下找不到 {split}.jsonl"
+        f"cannot find {split}.jsonl under dataset_dir={dataset_dir}"
     )
 
 
@@ -237,7 +237,7 @@ def _smoke_gate(summary: dict[str, Any]) -> dict[str, Any]:
     if summary.get("dry_run") is True:
         return {
             "passed": selected > 0,
-            "reasons": [] if selected > 0 else ["没有选中样本"],
+            "reasons": [] if selected > 0 else ["no selected samples"],
             "selected_samples": selected,
             "inference_success_count": None,
             "parse_success_count": None,
@@ -250,13 +250,13 @@ def _smoke_gate(summary: dict[str, Any]) -> dict[str, Any]:
     incomplete = int(export.get("incomplete_records") or 0)
     reasons: list[str] = []
     if selected <= 0:
-        reasons.append("没有选中样本")
+        reasons.append("no selected samples")
     if inference_success != selected:
-        reasons.append("不是所有样本都完成推理")
+        reasons.append("not all samples completed inference")
     if parse_success != selected:
-        reasons.append("不是所有样本都解析成功")
+        reasons.append("not all samples parsed")
     if incomplete:
-        reasons.append("导出记录不完整")
+        reasons.append("export has incomplete records")
     return {
         "passed": not reasons,
         "reasons": reasons,
@@ -361,7 +361,7 @@ def _normalize_models(default_model: str, models: list[str] | None) -> list[str]
         result.append(cleaned)
         seen.add(cleaned)
     if not result:
-        raise ValueError("至少需要配置一个模型")
+        raise ValueError("at least one model must be configured")
     return result
 
 

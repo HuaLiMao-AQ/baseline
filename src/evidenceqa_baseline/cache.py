@@ -1,4 +1,4 @@
-"""大模型实验运行时缓存目录配置。"""
+"""Runtime cache placement for large model experiments."""
 
 from __future__ import annotations
 
@@ -9,14 +9,7 @@ _MANAGED_ENV: dict[str, str] = {}
 
 
 def configure_runtime_cache(cache_dir: Path) -> dict[str, str]:
-    """把 Hugging Face 相关缓存指向指定目录。
-
-    Args:
-        cache_dir: baseline 使用的缓存根目录。
-
-    Returns:
-        本函数管理的环境变量及其最终值。
-    """
+    """Point Hugging Face runtime caches at the configured cache directory."""
 
     root = cache_dir.expanduser().resolve()
     hf_home = root / "huggingface"
@@ -42,26 +35,19 @@ def configure_runtime_cache(cache_dir: Path) -> dict[str, str]:
 
 
 def model_cache_dir(cache_dir: Path) -> Path:
-    """返回 Transformers 模型加载应使用的 HF Hub 缓存目录。"""
+    """Return the Hugging Face cache directory used for model downloads."""
 
     return hf_hub_cache_dir(cache_dir)
 
 
 def hf_hub_cache_dir(cache_dir: Path) -> Path:
-    """返回 ``cache_dir`` 下标准 HF Hub 缓存目录。"""
+    """Return the standard Hugging Face Hub cache directory under cache_dir."""
 
     return cache_dir.expanduser() / "huggingface" / "hub"
 
 
 def hf_cache_kwargs(cache_dir: Path | None) -> dict[str, str]:
-    """构造 ``from_pretrained`` 可接受的缓存参数。
-
-    Args:
-        cache_dir: HF Hub 缓存目录；为 ``None`` 时不注入参数。
-
-    Returns:
-        可直接传入 Transformers/HF API 的关键字参数。
-    """
+    """Build kwargs accepted by Transformers/Hugging Face from_pretrained calls."""
 
     if cache_dir is None:
         return {}

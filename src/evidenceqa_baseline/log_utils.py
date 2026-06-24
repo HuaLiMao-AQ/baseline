@@ -1,4 +1,4 @@
-"""运行日志配置，并压低第三方下载日志噪声。"""
+"""Baseline logging setup with quiet third-party download logs."""
 
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ QUIET_THIRD_PARTY_LOGGERS = (
 
 
 def configure_run_logging(log_path: Path, *, overwrite: bool) -> logging.Logger:
-    """配置单次运行日志文件并抑制无关重试噪声。
+    """Configure a compact per-run log file and suppress noisy retries.
 
     Args:
-        log_path: 运行日志路径。
-        overwrite: 是否覆盖已有日志文件。
+        log_path: File path for the run log.
+        overwrite: Whether to truncate an existing log file.
 
     Returns:
-        baseline 使用的 logger。
+        Baseline logger instance.
     """
 
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -71,12 +71,12 @@ def configure_run_logging(log_path: Path, *, overwrite: bool) -> logging.Logger:
 
 
 def _call_optional_hf_logging_api(hf_logging: object, name: str) -> None:
-    """在当前 Hugging Face Hub 版本支持时调用日志辅助函数。"""
+    """Call a Hugging Face logging helper when this installed version has it."""
 
     function = getattr(hf_logging, name, None)
     if not callable(function):
         return
     try:
         function()
-    except Exception:  # noqa: BLE001 - 日志配置不能阻断实验运行。
+    except Exception:  # noqa: BLE001 - logging setup must not break a run.
         return

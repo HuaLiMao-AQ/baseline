@@ -9,7 +9,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .dataset import DatasetError, download_hf_dataset_file, hf_auth_headers
+from .dataset import (
+    DatasetError,
+    download_hf_dataset_file,
+    hf_auth_headers,
+)
 
 
 class MediaError(RuntimeError):
@@ -72,7 +76,8 @@ def resolve_or_download_media(
         return path
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers=hf_auth_headers())
+    headers = hf_auth_headers()
+    request = urllib.request.Request(url, headers=headers)
 
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
@@ -90,7 +95,9 @@ def resolve_or_download_media(
                 tmp_path = Path(tmp.name)
     except urllib.error.HTTPError as exc:
         if exc.code in {401, 403}:
-            raise MediaError("Hugging Face media 下载被拒绝") from exc
+            raise MediaError(
+                "Hugging Face access denied while downloading media"
+            ) from exc
         raise MediaError(f"media download failed: HTTP {exc.code}") from exc
     except OSError as exc:
         raise MediaError(

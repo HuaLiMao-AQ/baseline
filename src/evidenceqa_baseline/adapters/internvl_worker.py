@@ -1,4 +1,4 @@
-"""使用官方 Transformers 版本运行 InternVL 的 JSONL worker。"""
+"""JSONL worker for running InternVL with its official Transformers version."""
 
 from __future__ import annotations
 
@@ -31,13 +31,13 @@ def main() -> None:
                 _send({"ok": True})
             elif op == "predict":
                 if adapter is None:
-                    raise RuntimeError("InternVL worker 尚未初始化")
-                sample = DatasetSample(**_temporal_payload(request["sample"]))
+                    raise RuntimeError("InternVL worker is not initialized")
+                sample = DatasetSample(**request["sample"])
                 result = adapter.predict(sample, Path(request["media_path"]))
                 _send({"ok": True, "result": result})
             elif op == "predict_spatial":
                 if adapter is None:
-                    raise RuntimeError("InternVL worker 尚未初始化")
+                    raise RuntimeError("InternVL worker is not initialized")
                 sample = _spatial_sample_from_payload(request["sample"])
                 frame_paths = [
                     (int(frame_index), Path(path))
@@ -49,7 +49,7 @@ def main() -> None:
                 _send({"ok": True})
                 return
             else:
-                raise RuntimeError(f"未知 InternVL worker 操作: {op}")
+                raise RuntimeError(f"unknown InternVL worker op: {op}")
         except Exception:
             _send({"ok": False, "error": traceback.format_exc()})
 
@@ -64,13 +64,6 @@ def _config_from_payload(payload: dict[str, Any]) -> InternVLConfig:
     if values.get("model_cache_dir") is not None:
         values["model_cache_dir"] = Path(values["model_cache_dir"])
     return InternVLConfig(**values)
-
-
-def _temporal_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    values = dict(payload)
-    if "sample_id" not in values and "id" in values:
-        values["sample_id"] = values.pop("id")
-    return values
 
 
 def _spatial_sample_from_payload(payload: dict[str, Any]) -> SpatialSample:

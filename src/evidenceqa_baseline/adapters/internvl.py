@@ -1,4 +1,4 @@
-"""使用官方 chat 路径的 InternVL 适配器。"""
+"""InternVL adapter using the official InternVL chat path."""
 
 from __future__ import annotations
 
@@ -43,13 +43,11 @@ INTERNVL_SPATIAL_JSON_PREFIX = '{\n  "target": '
 
 
 class InternVLAdapterError(RuntimeError):
-    """InternVL 加载或推理失败时抛出。"""
+    """InternVL loading or inference failure."""
 
 
 @dataclass(frozen=True, slots=True)
 class InternVLConfig:
-    """InternVL 推理配置。"""
-
     model_id: str = DEFAULT_INTERNVL_MODEL_ID
     model_cache_dir: Path | None = None
     device: str = "cuda"
@@ -61,7 +59,7 @@ class InternVLConfig:
 
 
 class InternVLAdapter:
-    """面向时间问答和空间定位基线的懒加载适配器。"""
+    """Lazy InternVL adapter for temporal and spatial baselines."""
 
     def __init__(self, config: InternVLConfig) -> None:
         self.config = config
@@ -80,7 +78,7 @@ class InternVLAdapter:
         model, tokenizer, torch, device, dtype = self._ensure_loaded()
         duration = sample.duration_seconds
         if duration is None:
-            raise InternVLAdapterError("样本缺少视频时长，无法构造时间问答 prompt")
+            raise InternVLAdapterError("sample duration is required before prediction")
         frames = sample_video_frames(
             media_path,
             duration_seconds=duration,
@@ -147,9 +145,9 @@ class InternVLAdapter:
             python = _internvl_worker_python()
             if python is None:
                 raise InternVLAdapterError(
-                    "InternVL2.5 官方推理需要 Transformers 4.37 环境；"
-                    "请把 EVIDENCEQA_INTERNVL_PYTHON 指向该解释器，"
-                    "例如 /root/autodl-tmp/internvl-tf437/bin/python。"
+                    "InternVL2.5 official inference requires a Transformers 4.37 "
+                    "Python environment. Set EVIDENCEQA_INTERNVL_PYTHON to that "
+                    "interpreter, for example /root/autodl-tmp/internvl-tf437/bin/python."
                 )
             self._worker = _InternVLWorkerClient(self.config, python=python)
         return self._worker
@@ -179,8 +177,9 @@ class InternVLAdapter:
                 from transformers.generation.utils import GenerationMixin
         except ImportError as exc:
             raise InternVLAdapterError(
-                "InternVL 推理缺少 transformers、torch、torchvision、pillow、"
-                "decord、einops 或 timm；请安装 `.[vl]`。"
+                "InternVL inference requires transformers, torch, torchvision, "
+                "pillow, decord, einops, and timm. Install with: "
+                'python -m pip install -e ".[vl]"'
             ) from exc
 
         device = select_device(torch, self.config.device)
@@ -270,7 +269,8 @@ class InternVLAdapter:
             from torchvision import transforms
         except ImportError as exc:
             raise InternVLAdapterError(
-                "InternVL 帧预处理缺少 pillow 或 torchvision；请安装 `.[vl]`。"
+                "InternVL frame preprocessing requires pillow and torchvision. "
+                'Install with: python -m pip install -e ".[vl]"'
             ) from exc
 
         self._transform = transforms.Compose(
@@ -330,7 +330,7 @@ def _ensure_internvl_json_response(
     prompt_mode: str,
     frames: list[FrameImage],
 ) -> str:
-    """返回模型原文，不静默构造预测结果。"""
+    """Return the model text without silently manufacturing predictions."""
 
     return response.strip()
 
@@ -375,7 +375,7 @@ def _uniformly_limit_items(items: list[Any], limit: int) -> list[Any]:
 
 @contextlib.contextmanager
 def _patch_missing_tied_weight_keys(model_base_class: Any) -> Any:
-    """兼容需要 ``all_tied_weights_keys`` 字段的 InternVL 远程代码。"""
+    """Compat for InternVL remote code on Transformers releases using this field."""
 
     original_getattr = getattr(model_base_class, "__getattr__")
 
@@ -400,7 +400,7 @@ def _ensure_tied_weight_keys(model: Any) -> None:
 
 @contextlib.contextmanager
 def _disable_custom_generate_loading(model_base_class: Any) -> Any:
-    """跳过 Transformers 5 的 custom_generate 下载。"""
+    """Skip Transformers 5 custom_generate downloads; this adapter decodes directly."""
 
     original = getattr(model_base_class, "load_custom_generate", None)
     if not callable(original):
@@ -409,7 +409,7 @@ def _disable_custom_generate_loading(model_base_class: Any) -> Any:
 
     def disabled_load_custom_generate(*args: Any, **kwargs: Any) -> Any:
         del args, kwargs
-        raise OSError("EvidenceQA InternVL 适配器已禁用 custom_generate")
+        raise OSError("custom_generate disabled for EvidenceQA InternVL adapter")
 
     model_base_class.load_custom_generate = disabled_load_custom_generate
     try:
@@ -420,7 +420,7 @@ def _disable_custom_generate_loading(model_base_class: Any) -> Any:
 
 @contextlib.contextmanager
 def _quiet_internvl_remote_code() -> Any:
-    """加载模型时压低 InternVL 远程代码的已知警告。"""
+    """Silence known InternVL remote-code warnings while loading the model."""
 
     with (
         warnings.catch_warnings(),
@@ -551,21 +551,21 @@ class _InternVLWorkerClient:
     def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         process = self._process
         if process.stdin is None or process.stdout is None:
-            raise InternVLAdapterError("InternVL worker 管道不可用")
+            raise InternVLAdapterError("InternVL worker pipes are unavailable")
         if process.poll() is not None:
             raise InternVLAdapterError(
-                f"InternVL worker 已退出，返回码为 {process.returncode}"
+                f"InternVL worker exited with code {process.returncode}"
             )
         process.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
         process.stdin.flush()
         line = process.stdout.readline()
         if not line:
             raise InternVLAdapterError(
-                f"InternVL worker 已退出，返回码为 {process.poll()}"
+                f"InternVL worker exited with code {process.poll()}"
             )
         response = json.loads(line)
         if not response.get("ok"):
-            raise InternVLAdapterError(str(response.get("error", "worker 执行失败")))
+            raise InternVLAdapterError(str(response.get("error", "worker failed")))
         return response
 
     def __del__(self) -> None:
