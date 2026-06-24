@@ -1,0 +1,15 @@
+# Hugging Face / RTX PRO 6000 GPU 镜像运行依赖。
+#
+# 推荐的 GPU 镜像通常已经带 CUDA 版 torch、torchvision 和 torchcodec。
+# 如果镜像已经可用，不要用本文件覆盖这些 CUDA 栈，避免破坏视频模型推理环境。
+
+huggingface-hub>=0.27
+rich>=13.0
+
+accelerate>=0.34
+transformers>=4.57.0
+einops>=0.8
+timm>=1.0
+pillow>=10.0
+decord>=0.6
+qwen-vl-utils[decord]>=0.0.8
