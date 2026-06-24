@@ -1,6 +1,6 @@
-# EvidenceQA Baseline Refactor
+# EvidenceQA Baseline
 
-这是基于原始 EvidenceQA baseline 的结构化重构项目，不是重新实现实验逻辑。
+这是基于原始 EvidenceQA baseline 的结构清晰的 baseline 项目，不是重新实现实验逻辑。
 目标是在保持原 baseline 行为、参数和输出契约可对照的前提下，用更清晰的模块边界、
 Google Python Style 和可审计的提交历史整理代码。
 
@@ -15,7 +15,7 @@ Google Python Style 和可审计的提交历史整理代码。
 ## 当前状态
 
 当前项目先保留已有 baseline 结果分析工具，并逐步把原 baseline 的运行链路迁入新结构。
-每个迁移模块都以原 baseline 为行为来源；重构只调整组织方式、命名、文档和边界。
+每个迁移模块都以原 baseline 为行为来源；整理只调整组织方式、命名、文档和边界。
 
 已包含：
 
@@ -55,37 +55,37 @@ python -m pip install -e .
 查看项目版本：
 
 ```bash
-evidenceqa-baseline-refactor version
+evidenceqa-baseline version
 ```
 
 校验 baseline artifact 目录：
 
 ```bash
-evidenceqa-baseline-refactor validate-artifact /path/to/baseline-all-models
+evidenceqa-baseline validate-artifact /path/to/baseline-all-models
 ```
 
 导出主指标 CSV：
 
 ```bash
-evidenceqa-baseline-refactor export-tables /path/to/baseline-all-models outputs/analysis
+evidenceqa-baseline export-tables /path/to/baseline-all-models outputs/analysis
 ```
 
 导出 grounded 阶段错误类型：
 
 ```bash
-evidenceqa-baseline-refactor export-taxonomy /path/to/baseline-all-models outputs/grounded_taxonomy.csv
+evidenceqa-baseline export-taxonomy /path/to/baseline-all-models outputs/grounded_taxonomy.csv
 ```
 
 生成完整分析报告和配套 CSV：
 
 ```bash
-evidenceqa-baseline-refactor analyze-artifact /path/to/baseline-all-models outputs/analysis
+evidenceqa-baseline analyze-artifact /path/to/baseline-all-models outputs/analysis
 ```
 
 ## 目录
 
 ```text
-src/evidenceqa_baseline_refactor/
+src/evidenceqa_baseline/
   adapters/      # 模型 adapter 接口和具体实现
   artifact.py    # 结果目录校验
   cache.py       # HF 和 Transformers 缓存目录配置

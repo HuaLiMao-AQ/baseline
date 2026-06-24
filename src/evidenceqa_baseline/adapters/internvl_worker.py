@@ -8,8 +8,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from evidenceqa_baseline_refactor.adapters.internvl import InternVLAdapter, InternVLConfig
-from evidenceqa_baseline_refactor.dataset import (
+from evidenceqa_baseline.adapters.internvl import InternVLAdapter, InternVLConfig
+from evidenceqa_baseline.dataset import (
     BoxTrackItem,
     DatasetSample,
     FrameRef,

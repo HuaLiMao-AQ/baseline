@@ -7,8 +7,8 @@ import os
 import warnings
 from pathlib import Path
 
-BASELINE_LOGGER_NAME = "evidenceqa_baseline_refactor"
-RUN_FILE_HANDLER_NAME = "evidenceqa_baseline_refactor.run_file"
+BASELINE_LOGGER_NAME = "evidenceqa_baseline"
+RUN_FILE_HANDLER_NAME = "evidenceqa_baseline.run_file"
 
 QUIET_THIRD_PARTY_LOGGERS = (
     "filelock",

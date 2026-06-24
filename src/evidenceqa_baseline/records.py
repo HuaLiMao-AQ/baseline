@@ -6,10 +6,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from evidenceqa_baseline_refactor.adapters import AdapterResponse
-from evidenceqa_baseline_refactor.config import DataConfig, ModelConfig, StageConfig
-from evidenceqa_baseline_refactor.dataset import SpatialSample, TemporalSample
-from evidenceqa_baseline_refactor.parser import (
+from evidenceqa_baseline.adapters import AdapterResponse
+from evidenceqa_baseline.config import DataConfig, ModelConfig, StageConfig
+from evidenceqa_baseline.dataset import SpatialSample, TemporalSample
+from evidenceqa_baseline.parser import (
     ParsedSpatialPrediction,
     ParsedTemporalPrediction,
 )

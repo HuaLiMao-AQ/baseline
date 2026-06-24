@@ -6,7 +6,7 @@
 
 - 初始化项目可以直接用 `Initial commit`。
 - 小修复可以写 `Fix artifact validation JSON output`。
-- 重构可以写 `Refactor metrics helpers`。
+- 结构整理可以写 `整理指标辅助函数`。
 - 数据或结果整理可以写 `Add baseline analysis tables`。
 - 中文提交也可以，例如 `整理 baseline 结果说明`。
 
@@ -17,7 +17,7 @@
 ```text
 feat(dataset): add jsonl sample loader
 fix(parser): handle fenced json output
-refactor(metrics): split temporal helpers
+docs(readme): 更新运行说明
 ```
 
 但这不是硬要求。

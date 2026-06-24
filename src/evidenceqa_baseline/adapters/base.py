@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from evidenceqa_baseline_refactor.config import ModelConfig, PromptMode
-from evidenceqa_baseline_refactor.dataset import (
+from evidenceqa_baseline.config import ModelConfig, PromptMode
+from evidenceqa_baseline.dataset import (
     EvidenceSample,
     SpatialSample,
     TemporalSample,

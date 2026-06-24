@@ -1,7 +1,7 @@
 [project]
-name = "evidenceqa-baseline-refactor"
+name = "evidenceqa-baseline"
 version = "0.1.0"
-description = "Structured refactor of the original EvidenceQA baseline."
+description = "Clean EvidenceQA baseline implementation."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -37,14 +37,14 @@ dev = [
 ]
 
 [project.scripts]
-evidenceqa-baseline-refactor = "evidenceqa_baseline_refactor.cli:main"
+evidenceqa-baseline = "evidenceqa_baseline.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/evidenceqa_baseline_refactor"]
+packages = ["src/evidenceqa_baseline"]
 
 [tool.ruff]
 line-length = 88

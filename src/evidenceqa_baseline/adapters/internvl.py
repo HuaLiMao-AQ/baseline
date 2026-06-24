@@ -13,10 +13,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from evidenceqa_baseline_refactor.cache import hf_cache_kwargs
-from evidenceqa_baseline_refactor.dataset import DatasetSample, SpatialSample
-from evidenceqa_baseline_refactor.devices import select_device, select_dtype
-from evidenceqa_baseline_refactor.prompting import (
+from evidenceqa_baseline.cache import hf_cache_kwargs
+from evidenceqa_baseline.dataset import DatasetSample, SpatialSample
+from evidenceqa_baseline.devices import select_device, select_dtype
+from evidenceqa_baseline.prompting import (
     PROMPT_MODE_GROUNDED,
     PROMPT_MODE_SPATIAL,
     build_frame_temporal_prompt,
@@ -538,7 +538,7 @@ class _InternVLWorkerClient:
             [
                 self._python,
                 "-m",
-                "evidenceqa_baseline_refactor.adapters.internvl_worker",
+                "evidenceqa_baseline.adapters.internvl_worker",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

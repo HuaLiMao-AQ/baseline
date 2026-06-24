@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from evidenceqa_baseline_refactor.config import PromptMode
+from evidenceqa_baseline.config import PromptMode
 
 PROMPT_MODE_ANSWER_ONLY = "answer_only"
 PROMPT_MODE_GROUNDED = "grounded"
