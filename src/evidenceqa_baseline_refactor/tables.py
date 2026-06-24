@@ -27,7 +27,7 @@ def export_metric_tables(root: Path, output_dir: Path) -> list[Path]:
         已写出的 CSV 路径列表。
     """
 
-    summary = _read_suite_summary(root)
+    summary = read_suite_summary(root)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     temporal_path = output_dir / "temporal_main.csv"
@@ -110,7 +110,9 @@ def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) -> 
             writer.writerow({field: _csv_value(row.get(field)) for field in fieldnames})
 
 
-def _read_suite_summary(root: Path) -> dict[str, Any]:
+def read_suite_summary(root: Path) -> dict[str, Any]:
+    """读取 suite summary。"""
+
     path = root / "suite_summary.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -167,4 +169,3 @@ SPATIAL_FIELDS = [
     "recall_at_box_iou_0_5",
     "average_latency_seconds",
 ]
-

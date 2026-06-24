@@ -10,6 +10,7 @@ from typing import Sequence
 
 from . import __version__
 from .artifact import validate_artifact
+from .report import write_analysis_report
 from .tables import export_metric_tables
 from .taxonomy import export_grounded_taxonomy
 
@@ -38,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     taxonomy.add_argument("root", type=Path)
     taxonomy.add_argument("output_path", type=Path)
+
+    analyze = subparsers.add_parser("analyze-artifact", help="生成 baseline 分析报告")
+    analyze.add_argument("root", type=Path)
+    analyze.add_argument("output_dir", type=Path)
     return parser
 
 
@@ -73,6 +78,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "export-taxonomy":
         print(export_grounded_taxonomy(args.root, args.output_path))
+        return 0
+    if args.command == "analyze-artifact":
+        print(write_analysis_report(args.root, args.output_dir))
         return 0
     parser.error(f"未知命令: {args.command}")
     return 2
