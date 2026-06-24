@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from evidenceqa_baseline_refactor.config import ModelConfig, PromptMode
-from evidenceqa_baseline_refactor.dataset import EvidenceSample
+from evidenceqa_baseline_refactor.dataset import (
+    EvidenceSample,
+    SpatialSample,
+    TemporalSample,
+)
 
 
 class AdapterError(RuntimeError):
@@ -44,7 +48,7 @@ class PredictionRequest:
         frame_paths: 空间任务的帧路径集合。
     """
 
-    sample: EvidenceSample
+    sample: EvidenceSample | TemporalSample | SpatialSample
     prompt: str
     prompt_mode: PromptMode
     media_path: Path | None = None

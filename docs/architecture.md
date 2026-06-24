@@ -22,7 +22,7 @@
 - `metrics` 不读取文件。
 - `metrics` 只接收内存中的预测记录，保持和 runner 解耦。
 - `parser` 不访问 ground truth。
-- `runner` 可以写 JSONL，但不能隐藏样本级失败。
+- `runner` 可以写 JSONL，但不能隐藏样本级失败；单样本异常必须落到记录里。
 - `records` 统一维护 `predictions.jsonl` 字段，不参与模型推理。
 - `suite` 只编排阶段，不关心具体模型实现细节。
 - `report` 只读取已落盘 artifact，不触发推理。
