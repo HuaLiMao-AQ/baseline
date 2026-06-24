@@ -32,7 +32,7 @@ def main() -> None:
             elif op == "predict":
                 if adapter is None:
                     raise RuntimeError("InternVL worker is not initialized")
-                sample = DatasetSample(**request["sample"])
+                sample = DatasetSample(**_temporal_payload(request["sample"]))
                 result = adapter.predict(sample, Path(request["media_path"]))
                 _send({"ok": True, "result": result})
             elif op == "predict_spatial":
@@ -64,6 +64,13 @@ def _config_from_payload(payload: dict[str, Any]) -> InternVLConfig:
     if values.get("model_cache_dir") is not None:
         values["model_cache_dir"] = Path(values["model_cache_dir"])
     return InternVLConfig(**values)
+
+
+def _temporal_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    values = dict(payload)
+    if "sample_id" not in values and "id" in values:
+        values["sample_id"] = values.pop("id")
+    return values
 
 
 def _spatial_sample_from_payload(payload: dict[str, Any]) -> SpatialSample:

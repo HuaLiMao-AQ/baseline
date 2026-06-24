@@ -22,6 +22,7 @@ DEFAULT_REVISION = "main"
 DEFAULT_SPLIT = "validation"
 TEMPORAL_TASK_TYPE = "temporal_qa"
 SPATIAL_TASK_TYPE = "spatial_grounding"
+DEFAULT_TASK_TYPE = TEMPORAL_TASK_TYPE
 DEFAULT_LIMIT = 100
 DEFAULT_SEED = 20260621
 DEFAULT_SAMPLE_MODE: SampleMode = "random"
@@ -65,6 +66,12 @@ class TemporalSample:
     media_path: str | None
     duration_seconds: float | None
     raw: dict[str, Any]
+
+    @property
+    def id(self) -> str:
+        """兼容原 baseline 使用的样本 ID 属性。"""
+
+        return self.sample_id
 
 
 # 兼容原 baseline 的命名；新项目内部逐步使用更具体的 TemporalSample。
@@ -120,6 +127,12 @@ class SpatialSample:
     target_ref: str | None
     raw: dict[str, Any]
 
+    @property
+    def id(self) -> str:
+        """兼容原 baseline 使用的样本 ID 属性。"""
+
+        return self.sample_id
+
 
 @dataclass(frozen=True, slots=True)
 class TemporalDatasetLoadResult:
@@ -146,6 +159,10 @@ class SpatialDatasetLoadResult:
     total_rows: int
     spatial_rows: int
     selected_samples: list[SpatialSample]
+
+
+# 兼容原 baseline 的命名；语义上对应 temporal QA 加载结果。
+DatasetLoadResult = TemporalDatasetLoadResult
 
 
 def hf_resolve_url(repo_id: str, revision: str, path: str) -> str:
@@ -436,21 +453,23 @@ def select_samples(
     *,
     limit: int | None,
     seed: int,
-    mode: SampleMode,
+    mode: SampleMode | None = None,
+    sample_mode: SampleMode | None = None,
 ) -> list[SampleT]:
     """稳定选择实验样本。"""
 
+    selected_mode = mode or sample_mode or DEFAULT_SAMPLE_MODE
     if limit is None or limit >= len(samples):
         return list(samples)
     if limit < 0:
         raise ValueError("limit 不能为负数")
-    if mode == "sequential":
+    if selected_mode == "sequential":
         return list(samples[:limit])
-    if mode == "random":
+    if selected_mode == "random":
         rng = random.Random(seed)
         indices = sorted(rng.sample(range(len(samples)), limit))
         return [samples[index] for index in indices]
-    raise ValueError(f"未知 sample mode: {mode}")
+    raise ValueError(f"未知 sample mode: {selected_mode}")
 
 
 def load_temporal_samples(
