@@ -7,7 +7,7 @@
 | 层 | 模块 | 职责 |
 | --- | --- | --- |
 | 数据层 | `dataset`, `jsonl` | 读取 JSONL、筛选样本、稳定抽样 |
-| 模型层 | `adapters` | 加载模型并返回原始输出 |
+| 模型层 | `adapters` | 统一模型调用接口，加载模型并返回原始输出 |
 | 解析层 | `parser` | 将模型原始输出解析成结构化预测 |
 | 指标层 | `metrics` | 计算 answer、temporal、spatial 指标 |
 | 编排层 | `runner`, `suite` | 执行单阶段和多模型实验 |
@@ -15,7 +15,7 @@
 
 ## 关键约束
 
-- `adapters` 不计算指标。
+- `adapters` 不计算指标，也不解析模型输出。
 - `metrics` 不读取文件。
 - `parser` 不访问 ground truth。
 - `runner` 可以写 JSONL，但不能隐藏样本级失败。
