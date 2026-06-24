@@ -11,7 +11,7 @@
 | 模型层 | `adapters` | 统一模型调用接口，加载模型并返回原始输出 |
 | 解析层 | `parser` | 将模型原始输出解析成结构化预测 |
 | 指标层 | `metrics` | 计算 answer、temporal、spatial 指标并汇总 summary |
-| 编排层 | `runner`, `suite` | 执行单阶段和多模型实验 |
+| 编排层 | `runner`, `suite`, `records` | 执行单阶段实验，构造预测记录并编排多模型 |
 | 交付层 | `artifact`, `tables`, `taxonomy`, `report` | 校验结果目录，导出指标表和分析报告 |
 
 ## 关键约束
@@ -23,6 +23,7 @@
 - `metrics` 只接收内存中的预测记录，保持和 runner 解耦。
 - `parser` 不访问 ground truth。
 - `runner` 可以写 JSONL，但不能隐藏样本级失败。
+- `records` 统一维护 `predictions.jsonl` 字段，不参与模型推理。
 - `suite` 只编排阶段，不关心具体模型实现细节。
 - `report` 只读取已落盘 artifact，不触发推理。
 
