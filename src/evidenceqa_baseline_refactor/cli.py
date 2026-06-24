@@ -11,6 +11,7 @@ from typing import Sequence
 from . import __version__
 from .artifact import validate_artifact
 from .tables import export_metric_tables
+from .taxonomy import export_grounded_taxonomy
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     export = subparsers.add_parser("export-tables", help="导出 baseline 主指标 CSV")
     export.add_argument("root", type=Path)
     export.add_argument("output_dir", type=Path)
+
+    taxonomy = subparsers.add_parser(
+        "export-taxonomy",
+        help="导出 grounded 阶段 A/E 错误类型 CSV",
+    )
+    taxonomy.add_argument("root", type=Path)
+    taxonomy.add_argument("output_path", type=Path)
     return parser
 
 
@@ -62,6 +70,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         paths = export_metric_tables(args.root, args.output_dir)
         for path in paths:
             print(path)
+        return 0
+    if args.command == "export-taxonomy":
+        print(export_grounded_taxonomy(args.root, args.output_path))
         return 0
     parser.error(f"未知命令: {args.command}")
     return 2
