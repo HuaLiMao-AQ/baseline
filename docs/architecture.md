@@ -1,0 +1,31 @@
+# 架构说明
+
+新 baseline 项目按“数据、模型、解析、指标、导出”分层。
+
+## 分层
+
+| 层 | 模块 | 职责 |
+| --- | --- | --- |
+| 数据层 | `dataset`, `jsonl` | 读取 JSONL、筛选样本、稳定抽样 |
+| 模型层 | `adapters` | 加载模型并返回原始输出 |
+| 解析层 | `parser` | 将模型原始输出解析成结构化预测 |
+| 指标层 | `metrics` | 计算 answer、temporal、spatial 指标 |
+| 编排层 | `runner`, `suite` | 执行单阶段和多模型实验 |
+| 交付层 | `artifact` | 校验结果目录和 release artifact |
+
+## 关键约束
+
+- `adapters` 不计算指标。
+- `metrics` 不读取文件。
+- `parser` 不访问 ground truth。
+- `runner` 可以写 JSONL，但不能隐藏样本级失败。
+- `suite` 只编排阶段，不关心具体模型实现细节。
+
+## 后续迁移顺序
+
+1. 迁移 dataset 和 metrics，保证指标口径稳定。
+2. 迁移 parser，保留原始输出和修复标记。
+3. 迁移 artifact validation，先服务已有 baseline 结果。
+4. 迁移 runner 和 suite。
+5. 最后迁移模型 adapters。
+
