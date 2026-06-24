@@ -11,7 +11,7 @@
 | 解析层 | `parser` | 将模型原始输出解析成结构化预测 |
 | 指标层 | `metrics` | 计算 answer、temporal、spatial 指标 |
 | 编排层 | `runner`, `suite` | 执行单阶段和多模型实验 |
-| 交付层 | `artifact` | 校验结果目录和 release artifact |
+| 交付层 | `artifact`, `tables`, `taxonomy`, `report` | 校验结果目录，导出指标表和分析报告 |
 
 ## 关键约束
 
@@ -20,6 +20,7 @@
 - `parser` 不访问 ground truth。
 - `runner` 可以写 JSONL，但不能隐藏样本级失败。
 - `suite` 只编排阶段，不关心具体模型实现细节。
+- `report` 只读取已落盘 artifact，不触发推理。
 
 ## 后续迁移顺序
 
@@ -28,4 +29,3 @@
 3. 迁移 artifact validation，先服务已有 baseline 结果。
 4. 迁移 runner 和 suite。
 5. 最后迁移模型 adapters。
-
