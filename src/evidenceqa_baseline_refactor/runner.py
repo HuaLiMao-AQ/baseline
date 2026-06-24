@@ -141,7 +141,7 @@ PROGRESS_LOG_EVERY = 25
 
 @dataclass(frozen=True, slots=True)
 class SyncedMedia:
-    """Pre-resolved media path and duration for a selected sample."""
+    """已提前解析的样本媒体路径和视频时长。"""
 
     path: Path | None
     duration_seconds: float | None
@@ -197,7 +197,7 @@ def run_baseline(
     )
 
     if config.prompt_mode not in PROMPT_MODES:
-        raise ValueError(f"prompt_mode must be one of {PROMPT_MODES!r}")
+        raise ValueError(f"prompt_mode 必须是 {PROMPT_MODES!r} 之一")
 
     if config.overwrite:
         for path in (predictions_path, failed_samples_path, summary_path):
@@ -291,7 +291,7 @@ def run_baseline(
             _format_media_sync_log(synced_media),
         )
     elif config.media_sync != "lazy":
-        raise ValueError("media_sync must be 'eager' or 'lazy'")
+        raise ValueError("media_sync 必须是 'eager' 或 'lazy'")
 
     model_adapter: ModelAdapter | None = None
 
@@ -590,14 +590,14 @@ def _run_one_sample(
             if synced_media.error is not None:
                 raise synced_media.error
             if synced_media.path is None:
-                raise RuntimeError("media sync did not produce a local path")
+                raise RuntimeError("媒体同步没有产出本地路径")
             media_path = synced_media.path
             duration = synced_media.duration_seconds
         else:
             media_path = media_resolver(sample, config)
             duration = sample.duration_seconds or duration_probe(media_path)
         if duration is None or duration <= 0:
-            raise RuntimeError("video duration is unavailable")
+            raise RuntimeError("视频时长不可用")
         base_record["resolved_media_path"] = str(media_path)
         base_record["duration_seconds"] = duration
         sample_for_prompt = DatasetSample(
@@ -695,8 +695,8 @@ def _sync_selected_media(
             media_path = media_resolver(sample, config)
             duration = sample.duration_seconds or duration_probe(media_path)
             if duration is None or duration <= 0:
-                raise RuntimeError("video duration is unavailable")
-        except Exception as exc:  # noqa: BLE001 - keep per-sample failure isolation.
+                raise RuntimeError("视频时长不可用")
+        except Exception as exc:  # noqa: BLE001 - 保持样本级失败隔离。
             synced[sample.id] = SyncedMedia(
                 path=None,
                 duration_seconds=None,

@@ -1,4 +1,4 @@
-"""LLaVA-OneVision adapter using Hugging Face Transformers."""
+"""基于 Hugging Face Transformers 的 LLaVA-OneVision 适配器。"""
 
 from __future__ import annotations
 
@@ -19,17 +19,20 @@ from evidenceqa_baseline_refactor.prompting import (
 
 from .frame_utils import frame_context, load_spatial_frames, sample_video_frames
 from .generation import generation_token_kwargs
+from .transformers_io import decode_generated_suffix, load_pretrained_with_dtype
 
 DEFAULT_LLAVA_ONEVISION_MODEL_ID = "llava-hf/llava-onevision-qwen2-7b-ov-hf"
 LLAVA_ONEVISION_MAX_IMAGE_FRAMES = 16
 
 
 class LlavaOneVisionAdapterError(RuntimeError):
-    """LLaVA-OneVision loading or inference failure."""
+    """LLaVA-OneVision 加载或推理失败时抛出。"""
 
 
 @dataclass(frozen=True, slots=True)
 class LlavaOneVisionConfig:
+    """LLaVA-OneVision 推理配置。"""
+
     model_id: str = DEFAULT_LLAVA_ONEVISION_MODEL_ID
     model_cache_dir: Path | None = None
     device: str = "cuda"
@@ -42,7 +45,7 @@ class LlavaOneVisionConfig:
 
 
 class LlavaOneVisionAdapter:
-    """Lazy LLaVA-OneVision adapter for temporal and spatial baselines."""
+    """面向时间问答和空间定位 baseline 的懒加载适配器。"""
 
     def __init__(self, config: LlavaOneVisionConfig) -> None:
         self.config = config
@@ -56,7 +59,7 @@ class LlavaOneVisionAdapter:
         duration = sample.duration_seconds
         if duration is None:
             raise LlavaOneVisionAdapterError(
-                "sample duration is required before prediction"
+                "样本缺少视频时长，无法构造时间问答 prompt"
             )
         frames = sample_video_frames(
             media_path,
@@ -116,28 +119,21 @@ class LlavaOneVisionAdapter:
                 from transformers import AutoProcessor
         except ImportError as exc:
             raise LlavaOneVisionAdapterError(
-                "LLaVA-OneVision inference requires transformers, torch, pillow, "
-                'and decord. Install with: python -m pip install -e ".[vl]"'
+                "LLaVA-OneVision 推理缺少 transformers、torch、pillow 或 decord；"
+                "请安装 `.[vl]`。"
             ) from exc
 
         model_class = _resolve_llava_onevision_model_class()
         device = select_device(torch, self.config.device)
         dtype = select_dtype(torch, self.config.dtype, device)
         cache_kwargs = hf_cache_kwargs(self.config.model_cache_dir)
-        try:
-            model = model_class.from_pretrained(
-                self.config.model_id,
-                dtype=dtype,
-                low_cpu_mem_usage=True,
-                **cache_kwargs,
-            )
-        except TypeError:
-            model = model_class.from_pretrained(
-                self.config.model_id,
-                torch_dtype=dtype,
-                low_cpu_mem_usage=True,
-                **cache_kwargs,
-            )
+        model = load_pretrained_with_dtype(
+            model_class,
+            self.config.model_id,
+            dtype=dtype,
+            cache_kwargs=cache_kwargs,
+            low_cpu_mem_usage=True,
+        )
         processor = AutoProcessor.from_pretrained(
             self.config.model_id,
             **cache_kwargs,
@@ -183,16 +179,7 @@ class LlavaOneVisionAdapter:
                 max_new_tokens=self.config.max_new_tokens,
                 **generation_token_kwargs(processor, model),
             )
-        generated_ids = [
-            output_ids[len(input_ids) :]
-            for input_ids, output_ids in zip(inputs.input_ids, generated)
-        ]
-        decoded = processor.batch_decode(
-            generated_ids,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
-        )
-        return decoded[0] if decoded else ""
+        return decode_generated_suffix(processor, inputs, generated)
 
 
 def _resolve_llava_onevision_model_class() -> Any:
@@ -200,8 +187,8 @@ def _resolve_llava_onevision_model_class() -> Any:
         import transformers
     except ImportError as exc:
         raise LlavaOneVisionAdapterError(
-            "LLaVA-OneVision inference requires transformers. "
-            'Install with: python -m pip install -e ".[vl]"'
+            "LLaVA-OneVision 推理缺少 transformers。"
+            "请安装 `.[vl]`。"
         ) from exc
 
     for name in (

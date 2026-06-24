@@ -1,4 +1,4 @@
-"""Spatial grounding baseline 执行器。"""
+"""空间定位 baseline 执行器。"""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ FrameResolver = Callable[[FrameRef, RunConfig], Path]
 
 @dataclass(frozen=True, slots=True)
 class SyncedFrames:
-    """Pre-resolved frame paths for a selected spatial sample."""
+    """已提前解析的空间样本帧路径。"""
 
     frame_paths: list[tuple[int, Path]] | None
     error: Exception | None = None
@@ -189,10 +189,10 @@ def run_spatial_baseline(
             )
         logger.info(
             "stage_complete name=media_sync %s",
-            _format_media_sync_log(synced_frames),  # type: ignore[arg-type]
+        _format_media_sync_log(synced_frames),  # type: ignore[arg-type]
         )
     elif config.media_sync != "lazy":
-        raise ValueError("media_sync must be 'eager' or 'lazy'")
+        raise ValueError("media_sync 必须是 'eager' 或 'lazy'")
 
     model_adapter: ModelAdapter | None = None
 
@@ -386,7 +386,7 @@ def _run_one_spatial_sample(
             if synced_frames.error is not None:
                 raise synced_frames.error
             if synced_frames.frame_paths is None:
-                raise RuntimeError("media sync did not produce local frames")
+                raise RuntimeError("媒体同步没有产出本地帧路径")
             frame_paths = synced_frames.frame_paths
         else:
             frame_paths = [
@@ -453,8 +453,8 @@ def _sync_selected_frames(
                 for frame in _selected_frames(sample, max_frames=config.max_frames)
             ]
             if not frame_paths:
-                raise RuntimeError("spatial sample has no selected frames")
-        except Exception as exc:  # noqa: BLE001 - keep per-sample isolation.
+                raise RuntimeError("空间样本没有可选帧")
+        except Exception as exc:  # noqa: BLE001 - 保持样本级失败隔离。
             synced[sample.id] = SyncedFrames(frame_paths=None, error=exc)
             failed += 1
         else:

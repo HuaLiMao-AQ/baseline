@@ -1,4 +1,4 @@
-"""Frame sampling helpers for image-sequence VLM adapters."""
+"""面向图像序列 VLM 适配器的帧处理工具。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class FrameImage:
-    """A sampled or loaded frame with display metadata."""
+    """已抽样或已加载的单帧图像及其显示信息。"""
 
     frame_index: int
     label: str
@@ -23,21 +23,20 @@ def sample_video_frames(
     duration_seconds: float | None,
     max_frames: int,
 ) -> list[FrameImage]:
-    """Uniformly sample video frames as PIL images."""
+    """按均匀间隔从视频中抽样 PIL 图像帧。"""
 
     try:
         from decord import VideoReader, cpu
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError(
-            "Frame-based adapters require decord and pillow. "
-            'Install with: python -m pip install -e ".[vl]"'
+            "基于帧图像的适配器需要 decord 和 pillow；请安装 `.[vl]`。"
         ) from exc
 
     video_reader = VideoReader(str(media_path), ctx=cpu(0))
     total_frames = len(video_reader)
     if total_frames <= 0:
-        raise RuntimeError("video has no readable frames")
+        raise RuntimeError("视频没有可读取帧")
 
     frame_count = total_frames if max_frames <= 0 else min(max_frames, total_frames)
     indices = _uniform_indices(total_frames, frame_count)
@@ -52,9 +51,9 @@ def sample_video_frames(
             time_seconds = duration_seconds * float(index) / float(total_frames - 1)
         else:
             time_seconds = None
-        label = f"Frame {len(frames)}"
+        label = f"帧 {len(frames)}"
         if time_seconds is not None:
-            label += f" at {time_seconds:.2f}s"
+            label += f" @ {time_seconds:.2f}s"
         frames.append(
             FrameImage(
                 frame_index=int(index),
@@ -67,14 +66,13 @@ def sample_video_frames(
 
 
 def load_spatial_frames(frame_paths: list[tuple[int, Path]]) -> list[FrameImage]:
-    """Load spatial grounding frame files as PIL images."""
+    """把空间定位任务的帧文件加载为 PIL 图像。"""
 
     try:
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError(
-            "Frame-based adapters require pillow. "
-            'Install with: python -m pip install -e ".[vl]"'
+            "基于帧图像的适配器需要 pillow；请安装 `.[vl]`。"
         ) from exc
 
     frames: list[FrameImage] = []
@@ -82,7 +80,7 @@ def load_spatial_frames(frame_paths: list[tuple[int, Path]]) -> list[FrameImage]
         frames.append(
             FrameImage(
                 frame_index=frame_index,
-                label=f"Frame index {frame_index}",
+                label=f"帧索引 {frame_index}",
                 image=Image.open(path).convert("RGB"),
                 time_seconds=None,
             )
@@ -91,7 +89,7 @@ def load_spatial_frames(frame_paths: list[tuple[int, Path]]) -> list[FrameImage]
 
 
 def frame_context(frames: list[FrameImage]) -> str:
-    """Return a compact text list of frame labels."""
+    """返回用于 prompt 的紧凑帧标签列表。"""
 
     return "\n".join(frame.label for frame in frames)
 

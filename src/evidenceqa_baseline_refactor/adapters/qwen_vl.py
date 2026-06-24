@@ -18,6 +18,7 @@ from evidenceqa_baseline_refactor.prompting import (
 )
 
 from .generation import generation_token_kwargs
+from .transformers_io import decode_generated_suffix, load_pretrained_with_dtype
 
 DEFAULT_QWEN_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 
@@ -81,7 +82,7 @@ class QwenVLAdapter:
         model, processor, torch, device = self._ensure_loaded()
         duration = sample.duration_seconds
         if duration is None:
-            raise QwenVLAdapterError("sample duration is required before prediction")
+            raise QwenVLAdapterError("样本缺少视频时长，无法构造时间问答 prompt")
 
         messages = build_qwen_messages(
             question=sample.question,
@@ -114,21 +115,14 @@ class QwenVLAdapter:
                 max_new_tokens=self.config.max_new_tokens,
                 **generation_token_kwargs(processor, model),
             )
-        generated_ids = [
-            output_ids[len(input_ids) :]
-            for input_ids, output_ids in zip(inputs.input_ids, generated)
-        ]
-        decoded = processor.batch_decode(
-            generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )
-        return decoded[0] if decoded else ""
+        return decode_generated_suffix(processor, inputs, generated)
 
     def predict_spatial(
         self,
         sample: SpatialSample,
         frame_paths: list[tuple[int, Path]],
     ) -> str:
-        """执行 Qwen-VL spatial grounding 推理并返回解码文本。"""
+        """执行 Qwen-VL 空间定位推理并返回解码文本。"""
 
         model, processor, torch, device = self._ensure_loaded()
         messages = build_qwen_spatial_messages(
@@ -158,14 +152,7 @@ class QwenVLAdapter:
                 max_new_tokens=self.config.max_new_tokens,
                 **generation_token_kwargs(processor, model),
             )
-        generated_ids = [
-            output_ids[len(input_ids) :]
-            for input_ids, output_ids in zip(inputs.input_ids, generated)
-        ]
-        decoded = processor.batch_decode(
-            generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )
-        return decoded[0] if decoded else ""
+        return decode_generated_suffix(processor, inputs, generated)
 
     def _ensure_loaded(self) -> tuple[Any, Any, Any, str]:
         if self._model is not None and self._processor is not None:
@@ -180,8 +167,7 @@ class QwenVLAdapter:
                 from transformers import AutoProcessor
         except ImportError as exc:
             raise QwenVLAdapterError(
-                "Qwen-VL Hugging Face inference requires optional dependencies. "
-                'Install with: python -m pip install -e ".[vl]"'
+                "Qwen-VL 推理缺少可选依赖；请安装 `.[vl]`。"
             ) from exc
 
         model_class = _resolve_qwen_vl_model_class(self.config.model_id)
@@ -189,18 +175,12 @@ class QwenVLAdapter:
         dtype = select_dtype(torch, self.config.dtype, device)
         cache_kwargs = hf_cache_kwargs(self.config.model_cache_dir)
 
-        try:
-            model = model_class.from_pretrained(
-                self.config.model_id,
-                dtype=dtype,
-                **cache_kwargs,
-            )
-        except TypeError:
-            model = model_class.from_pretrained(
-                self.config.model_id,
-                torch_dtype=dtype,
-                **cache_kwargs,
-            )
+        model = load_pretrained_with_dtype(
+            model_class,
+            self.config.model_id,
+            dtype=dtype,
+            cache_kwargs=cache_kwargs,
+        )
         processor = AutoProcessor.from_pretrained(
             self.config.model_id,
             **cache_kwargs,
@@ -222,8 +202,7 @@ class QwenVLAdapter:
             from qwen_vl_utils import process_vision_info
         except ImportError as exc:
             raise QwenVLAdapterError(
-                "Qwen-VL video inference requires qwen-vl-utils. "
-                'Install with: python -m pip install -e ".[vl]"'
+                "Qwen-VL 视频推理缺少 qwen-vl-utils；请安装 `.[vl]`。"
             ) from exc
         return process_vision_info(messages)
 
@@ -232,16 +211,15 @@ def _resolve_qwen_vl_model_class(model_id: str) -> Any:
     normalized = model_id.lower().replace("_", "-")
     if "qwen2.5-vl" not in normalized and "qwen2-5-vl" not in normalized:
         raise QwenVLAdapterError(
-            "This baseline is pinned to Qwen2.5-VL for the single PRO 6000 route; "
-            f"unsupported model_id={model_id!r}."
+            "当前 Qwen 适配器只支持 Qwen2.5-VL；"
+            f"不支持的 model_id={model_id!r}。"
         )
 
     try:
         import transformers
     except ImportError as exc:
         raise QwenVLAdapterError(
-            "Qwen-VL inference requires transformers. "
-            'Install with: python -m pip install -e ".[vl]"'
+            "Qwen-VL 推理缺少 transformers；请安装 `.[vl]`。"
         ) from exc
 
     model_class = getattr(transformers, "Qwen2_5_VLForConditionalGeneration", None)

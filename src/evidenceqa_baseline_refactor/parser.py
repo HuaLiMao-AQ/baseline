@@ -264,11 +264,11 @@ def _load_jsonish(candidate: str) -> list[tuple[Any | None, bool, str | None]]:
             results.append((json.loads(text), was_repaired, None))
             continue
         except json.JSONDecodeError as exc:
-            results.append((None, was_repaired, f"JSON decode failed: {exc.msg}"))
+            results.append((None, was_repaired, f"JSON 解析失败: {exc.msg}"))
         try:
             value = ast.literal_eval(text)
         except (ValueError, SyntaxError) as exc:
-            results.append((None, True, f"literal parse failed: {exc}"))
+            results.append((None, True, f"literal 解析失败: {exc}"))
             continue
         results.append((value, True, None))
     return results
@@ -281,7 +281,7 @@ def _remove_trailing_commas(text: str) -> str:
 
 
 def _repair_common_jsonish_object(text: str) -> str:
-    """Repair conservative pseudo-JSON often emitted by chat VLMs."""
+    """保守修复聊天式 VLM 常见的伪 JSON 输出。"""
 
     repaired = re.sub(
         r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:',
@@ -319,30 +319,30 @@ def _validate_payload(
     require_temporal_evidence: bool,
 ) -> tuple[str, list[list[float]], bool]:
     if not isinstance(data, dict):
-        raise ValueError("parsed output is not an object")
+        raise ValueError("解析结果不是 object")
     answer = data.get("answer")
     if not isinstance(answer, str):
-        raise ValueError("answer must be a string")
+        raise ValueError("answer 必须是字符串")
     evidence = data.get("temporal_evidence")
     if evidence is None and not require_temporal_evidence:
         return answer, [], False
     if not isinstance(evidence, list):
-        raise ValueError("temporal_evidence must be a list")
+        raise ValueError("temporal_evidence 必须是列表")
     if duration_seconds is not None and duration_seconds < 0:
-        raise ValueError("duration_seconds must be non-negative")
+        raise ValueError("duration_seconds 不能为负数")
 
     intervals: list[list[float]] = []
     was_repaired = False
     for item in evidence:
         if not isinstance(item, list | tuple) or len(item) != 2:
-            raise ValueError("each evidence interval must contain two numbers")
+            raise ValueError("每个证据区间必须包含两个数值")
         start, end = item
         if not isinstance(start, int | float) or not isinstance(end, int | float):
-            raise ValueError("each evidence interval must contain two numbers")
+            raise ValueError("每个证据区间必须包含两个数值")
         start_f = float(start)
         end_f = float(end)
         if not math.isfinite(start_f) or not math.isfinite(end_f):
-            raise ValueError("evidence interval bounds must be finite")
+            raise ValueError("证据区间边界必须是有限数值")
 
         clipped_start = _clip_small_bound(start_f, 0.0)
         if clipped_start != start_f:
@@ -355,11 +355,11 @@ def _validate_payload(
                 end_f = clipped_end
 
         if start_f < 0:
-            raise ValueError("evidence start must be >= 0")
+            raise ValueError("证据起点必须大于等于 0")
         if duration_seconds is not None and end_f > duration_seconds:
-            raise ValueError("evidence end exceeds video duration")
+            raise ValueError("证据终点超过视频时长")
         if start_f > end_f:
-            raise ValueError("evidence start must be <= end")
+            raise ValueError("证据起点必须小于等于终点")
         intervals.append([start_f, end_f])
     return answer, intervals, was_repaired
 
@@ -370,11 +370,11 @@ def _validate_spatial_payload(
     valid_frame_indices: set[int] | None,
 ) -> tuple[str | None, int, list[float] | None, list[float] | None, bool]:
     if not isinstance(data, dict):
-        raise ValueError("parsed output is not an object")
+        raise ValueError("解析结果不是 object")
 
     target = data.get("target") or data.get("answer") or data.get("ref")
     if target is not None and not isinstance(target, str):
-        raise ValueError("target must be a string when present")
+        raise ValueError("target 存在时必须是字符串")
 
     frame_value = (
         data.get("frame_index")
@@ -384,9 +384,9 @@ def _validate_spatial_payload(
         else data.get("image_index")
     )
     if not isinstance(frame_value, int):
-        raise ValueError("frame_index must be an integer")
+        raise ValueError("frame_index 必须是整数")
     if valid_frame_indices is not None and frame_value not in valid_frame_indices:
-        raise ValueError("frame_index is not one of the supplied frames")
+        raise ValueError("frame_index 不在给定帧列表中")
 
     point_value = data.get("point")
     box_value = data.get("box")
@@ -403,11 +403,11 @@ def _validate_spatial_payload(
     box, box_repaired = _validate_coord_list(box_value, expected=4, label="box")
     was_repaired = point_repaired or box_repaired
     if point is None and box is None:
-        raise ValueError("at least one of point or box is required")
+        raise ValueError("point 和 box 至少需要一个")
     if box is not None:
         x1, y1, x2, y2 = box
         if x1 > x2 or y1 > y2:
-            raise ValueError("box must be [x1, y1, x2, y2] with x1<=x2 and y1<=y2")
+            raise ValueError("box 必须满足 [x1, y1, x2, y2] 且 x1<=x2、y1<=y2")
         if point is None:
             point = [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
             was_repaired = True

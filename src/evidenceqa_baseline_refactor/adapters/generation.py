@@ -1,4 +1,4 @@
-"""Shared generation helpers for Hugging Face adapters."""
+"""Hugging Face 适配器共享的生成参数工具。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""JSONL worker for running InternVL with its official Transformers version."""
+"""使用官方 Transformers 版本运行 InternVL 的 JSONL worker。"""
 
 from __future__ import annotations
 
@@ -31,13 +31,13 @@ def main() -> None:
                 _send({"ok": True})
             elif op == "predict":
                 if adapter is None:
-                    raise RuntimeError("InternVL worker is not initialized")
+                    raise RuntimeError("InternVL worker 尚未初始化")
                 sample = DatasetSample(**_temporal_payload(request["sample"]))
                 result = adapter.predict(sample, Path(request["media_path"]))
                 _send({"ok": True, "result": result})
             elif op == "predict_spatial":
                 if adapter is None:
-                    raise RuntimeError("InternVL worker is not initialized")
+                    raise RuntimeError("InternVL worker 尚未初始化")
                 sample = _spatial_sample_from_payload(request["sample"])
                 frame_paths = [
                     (int(frame_index), Path(path))
@@ -49,7 +49,7 @@ def main() -> None:
                 _send({"ok": True})
                 return
             else:
-                raise RuntimeError(f"unknown InternVL worker op: {op}")
+                raise RuntimeError(f"未知 InternVL worker 操作: {op}")
         except Exception:
             _send({"ok": False, "error": traceback.format_exc()})
 
