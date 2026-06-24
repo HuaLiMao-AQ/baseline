@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="evidenceqa-baseline-refactor",
-        description="Clean EvidenceQA baseline rewrite scaffold.",
+        description="Structured refactor of the original EvidenceQA baseline.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("version", help="显示项目版本")
