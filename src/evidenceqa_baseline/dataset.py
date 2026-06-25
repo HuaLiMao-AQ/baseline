@@ -15,7 +15,7 @@ from typing import Any, Iterable, TypeVar
 
 from .cache import hf_hub_cache_dir
 
-DEFAULT_REPO_ID = "HuaLiMaoAQ/evidenceqa-core"
+DEFAULT_REPO_ID = "evidence-video-reasoning/evidenceqa-core"
 DEFAULT_REVISION = "main"
 DEFAULT_SPLIT = "validation"
 DEFAULT_TASK_TYPE = "temporal_qa"
