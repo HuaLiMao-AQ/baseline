@@ -34,7 +34,6 @@ from .generation import generation_token_kwargs
 DEFAULT_INTERNVL_MODEL_ID = "OpenGVLab/InternVL2_5-8B"
 INTERNVL_WORKER_PYTHON_ENV = "EVIDENCEQA_INTERNVL_PYTHON"
 INTERNVL_WORKER_ACTIVE_ENV = "EVIDENCEQA_INTERNVL_WORKER"
-AUTODL_INTERNVL_PYTHON = Path("/root/autodl-tmp/internvl-tf437/bin/python")
 INTERNVL_IMAGE_SIZE = 448
 INTERNVL_MAX_EAGER_ATTENTION_FRAMES = 8
 INTERNVL_MIN_NEW_TOKENS = 16
@@ -147,7 +146,7 @@ class InternVLAdapter:
                 raise InternVLAdapterError(
                     "InternVL2.5 official inference requires a Transformers 4.37 "
                     "Python environment. Set EVIDENCEQA_INTERNVL_PYTHON to that "
-                    "interpreter, for example /root/autodl-tmp/internvl-tf437/bin/python."
+                    "interpreter."
                 )
             self._worker = _InternVLWorkerClient(self.config, python=python)
         return self._worker
@@ -471,11 +470,6 @@ def _internvl_worker_python() -> str | None:
     configured = os.environ.get(INTERNVL_WORKER_PYTHON_ENV)
     if configured:
         return configured
-    try:
-        if AUTODL_INTERNVL_PYTHON.exists():
-            return str(AUTODL_INTERNVL_PYTHON)
-    except OSError:
-        return None
     return None
 
 

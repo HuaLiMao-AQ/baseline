@@ -11,8 +11,8 @@ python -u main.py --output-dir runs/my-baseline-suite
 python -u main.py --limit 20 --overwrite --no-resume
 ```
 
-数据目录、模型列表、硬件参数和抽样策略都在本文件顶部写死，避免每次实验再
-研究一长串工程参数。
+数据目录、缓存目录、模型列表、硬件参数和抽样策略可以通过命令行或环境变量
+覆盖；默认值只用于快速复现 baseline 配置。
 """
 
 from __future__ import annotations
@@ -28,16 +28,30 @@ SRC = ROOT / "src"
 if SRC.exists():
     sys.path.insert(0, str(SRC))
 
-DATASET_DIR = Path(
-    os.environ.get("EVIDENCEQA_DATASET_DIR", "/root/autodl-tmp/public_dataset")
-)
-CACHE_DIR = Path(
-    os.environ.get("EVIDENCEQA_CACHE_DIR", "~/autodl-tmp/.cache")
-).expanduser()
+
+def _optional_int(raw_value: str | None, default: int | None = None) -> int | None:
+    if raw_value is None or raw_value.strip() == "":
+        return default
+    normalized = raw_value.strip().lower()
+    if normalized in {"none", "null"}:
+        return None
+    return int(normalized)
+
+
+def _optional_float(raw_value: str | None) -> float | None:
+    if raw_value is None or raw_value.strip() == "":
+        return None
+    normalized = raw_value.strip().lower()
+    if normalized in {"none", "null"}:
+        return None
+    return float(normalized)
+
+DATASET_DIR = Path(os.environ.get("EVIDENCEQA_DATASET_DIR", "public_dataset"))
+CACHE_DIR = Path(os.environ.get("EVIDENCEQA_CACHE_DIR", ".cache/evidenceqa-baseline"))
 
 from evidenceqa_baseline.cache import configure_runtime_cache  # noqa: E402
 
-RESEARCH_MODELS = [
+DEFAULT_MODELS = [
     "Qwen/Qwen2.5-VL-7B-Instruct",
     "llava-hf/llava-onevision-qwen2-7b-ov-hf",
     "OpenGVLab/InternVL2_5-8B",
@@ -51,14 +65,19 @@ MODEL_ALIASES = {
     "internvl": "OpenGVLab/InternVL2_5-8B",
     "internvl2.5": "OpenGVLab/InternVL2_5-8B",
 }
-SEED = 20260621
-SAMPLE_MODE = "sequential"
-LIMIT = None
-DTYPE = "bfloat16"
-MAX_FRAMES = 64
-MAX_PIXELS = 768 * 28 * 28
-MAX_NEW_TOKENS = 256
-HARDWARE_PROFILE = "rtx-pro-6000-96gb-single-cuda"
+SEED = int(os.environ.get("EVIDENCEQA_SEED", "20260621"))
+SAMPLE_MODE = os.environ.get("EVIDENCEQA_SAMPLE_MODE", "sequential")
+LIMIT = _optional_int(os.environ.get("EVIDENCEQA_LIMIT"))
+DTYPE = os.environ.get("EVIDENCEQA_DTYPE", "bfloat16")
+MAX_FRAMES = int(os.environ.get("EVIDENCEQA_MAX_FRAMES", "64"))
+FPS = _optional_float(os.environ.get("EVIDENCEQA_FPS"))
+MAX_PIXELS = _optional_int(os.environ.get("EVIDENCEQA_MAX_PIXELS"), 768 * 28 * 28)
+MAX_NEW_TOKENS = int(os.environ.get("EVIDENCEQA_MAX_NEW_TOKENS", "256"))
+MEDIA_SYNC = os.environ.get("EVIDENCEQA_MEDIA_SYNC", "eager")
+HARDWARE_PROFILE = os.environ.get(
+    "EVIDENCEQA_HARDWARE_PROFILE",
+    "rtx-pro-6000-96gb-single-cuda",
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--target", choices=TARGETS, default=TARGET_SUITE)
     parser.add_argument("--dataset-dir", type=Path, default=DATASET_DIR)
+    parser.add_argument("--cache-dir", type=Path, default=CACHE_DIR)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
         "--limit",
@@ -89,6 +109,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--sample-mode",
+        choices=["random", "sequential"],
+        default=SAMPLE_MODE,
+    )
+    parser.add_argument("--dtype", default=DTYPE)
+    parser.add_argument("--max-frames", type=int, default=MAX_FRAMES)
+    parser.add_argument("--fps", type=float, default=FPS)
+    parser.add_argument("--max-pixels", type=int, default=MAX_PIXELS)
+    parser.add_argument("--max-new-tokens", type=int, default=MAX_NEW_TOKENS)
+    parser.add_argument("--hardware-profile", default=HARDWARE_PROFILE)
+    parser.add_argument("--media-sync", choices=["eager", "lazy"], default=MEDIA_SYNC)
     parser.add_argument(
         "--resume",
         dest="resume",
@@ -100,30 +133,40 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         parser.error("--limit must be non-negative; use --limit 0 for the full split")
+    if args.max_frames < 0:
+        parser.error("--max-frames must be non-negative")
+    if args.max_new_tokens <= 0:
+        parser.error("--max-new-tokens must be positive")
+    if args.max_pixels is not None and args.max_pixels < 0:
+        parser.error("--max-pixels must be non-negative")
     limit = None if args.limit in (None, 0) else args.limit
     selected_models = _select_models(args.models)
-    configure_runtime_cache(CACHE_DIR)
+    dataset_dir = args.dataset_dir.expanduser()
+    cache_dir = args.cache_dir.expanduser()
+    configure_runtime_cache(cache_dir)
 
     config = RunConfig(
         limit=limit,
-        seed=SEED,
-        sample_mode=SAMPLE_MODE,
+        seed=args.seed,
+        sample_mode=args.sample_mode,
         output_dir=args.output_dir,
-        cache_dir=CACHE_DIR,
+        cache_dir=cache_dir,
         dry_run=args.dry_run,
         resume=args.resume,
         overwrite=args.overwrite,
-        dtype=DTYPE,
-        max_frames=MAX_FRAMES,
-        max_pixels=MAX_PIXELS,
-        max_new_tokens=MAX_NEW_TOKENS,
+        dtype=args.dtype,
+        max_frames=args.max_frames,
+        fps=args.fps,
+        max_pixels=None if args.max_pixels == 0 else args.max_pixels,
+        max_new_tokens=args.max_new_tokens,
+        media_sync=args.media_sync,
         progress=args.progress,
-        hardware_profile=HARDWARE_PROFILE,
+        hardware_profile=args.hardware_profile,
     )
     result = run_suite(
         config,
         target=args.target,
-        dataset_dir=args.dataset_dir,
+        dataset_dir=dataset_dir,
         models=selected_models,
     )
     print(
@@ -143,7 +186,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _select_models(raw_values: list[str] | None) -> list[str]:
     if not raw_values:
-        return list(RESEARCH_MODELS)
+        env_models = os.environ.get("EVIDENCEQA_MODELS")
+        raw_values = [env_models] if env_models else list(DEFAULT_MODELS)
 
     selected: list[str] = []
     seen: set[str] = set()

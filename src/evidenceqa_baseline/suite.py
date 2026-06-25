@@ -15,8 +15,8 @@ from .prompting import PROMPT_MODE_ANSWER_ONLY, PROMPT_MODE_GROUNDED, PROMPT_MOD
 from .runner import RunConfig, RunResult
 
 DEFAULT_DATASET_DIR = Path(
-    os.environ.get("EVIDENCEQA_DATASET_DIR", "/root/autodl-tmp/public_dataset")
-)
+    os.environ.get("EVIDENCEQA_DATASET_DIR", "public_dataset")
+).expanduser()
 SMOKE_LIMIT = 3
 TARGET_SUITE = "suite"
 TARGET_SMOKE = "smoke"

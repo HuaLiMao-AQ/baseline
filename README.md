@@ -20,24 +20,34 @@ python -m pip install -e ".[vl]"
 python -m pip install -r requirements.txt
 ```
 
-## 缓存目录
+## 配置入口
 
-运行时只指定缓存根目录，不手动改 Hugging Face 缓存结构：
+运行参数通过命令行或环境变量指定。常用环境变量：
 
 ```bash
-export EVIDENCEQA_DATASET_DIR=/root/autodl-tmp/public_dataset
-export EVIDENCEQA_CACHE_DIR=/root/autodl-tmp/.cache
+export EVIDENCEQA_DATASET_DIR=/path/to/public_dataset
+export EVIDENCEQA_CACHE_DIR=/path/to/cache
+export EVIDENCEQA_MODELS=qwen,llava,internvl
+export EVIDENCEQA_SEED=20260621
+export EVIDENCEQA_SAMPLE_MODE=sequential
+export EVIDENCEQA_DTYPE=bfloat16
+export EVIDENCEQA_MAX_FRAMES=64
+export EVIDENCEQA_MAX_PIXELS=602112
+export EVIDENCEQA_MAX_NEW_TOKENS=256
+export EVIDENCEQA_HARDWARE_PROFILE=rtx-pro-6000-96gb-single-cuda
+export EVIDENCEQA_INTERNVL_PYTHON=/path/to/internvl/python
 ```
 
-代码会在缓存根目录下自动设置：
+运行时只指定缓存根目录，不手动改 Hugging Face 缓存结构。代码会在缓存根目录下
+自动设置：
 
 ```text
-HF_HOME=/root/autodl-tmp/.cache/huggingface
-HF_HUB_CACHE=/root/autodl-tmp/.cache/huggingface/hub
-HUGGINGFACE_HUB_CACHE=/root/autodl-tmp/.cache/huggingface/hub
-HF_DATASETS_CACHE=/root/autodl-tmp/.cache/huggingface/datasets
-HF_ASSETS_CACHE=/root/autodl-tmp/.cache/huggingface/assets
-TRANSFORMERS_CACHE=/root/autodl-tmp/.cache/huggingface/hub
+HF_HOME=<cache>/huggingface
+HF_HUB_CACHE=<cache>/huggingface/hub
+HUGGINGFACE_HUB_CACHE=<cache>/huggingface/hub
+HF_DATASETS_CACHE=<cache>/huggingface/datasets
+HF_ASSETS_CACHE=<cache>/huggingface/assets
+TRANSFORMERS_CACHE=<cache>/huggingface/hub
 ```
 
 ## 运行
@@ -55,7 +65,24 @@ python -u main.py \
   --target answer_only \
   --models qwen \
   --limit 50 \
-  --dataset-dir /root/autodl-tmp/public_dataset \
+  --dataset-dir /path/to/public_dataset \
+  --cache-dir /path/to/cache \
+  --output-dir runs/qwen-answer-only-50 \
+  --overwrite \
+  --no-progress
+```
+
+AutoDL 示例：
+
+```bash
+HF_HUB_OFFLINE=1 \
+TRANSFORMERS_OFFLINE=1 \
+EVIDENCEQA_DATASET_DIR=/root/autodl-tmp/public_dataset \
+EVIDENCEQA_CACHE_DIR=/root/autodl-tmp/.cache \
+PYTHONPATH=src /root/miniconda3/bin/python -u main.py \
+  --target answer_only \
+  --models qwen \
+  --limit 50 \
   --output-dir /root/autodl-tmp/evidenceqa-baseline-runs/qwen-answer-only-50 \
   --overwrite \
   --no-progress

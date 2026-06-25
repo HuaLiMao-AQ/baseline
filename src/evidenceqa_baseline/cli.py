@@ -98,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-pixels", type=int, default=768 * 28 * 28)
     parser.add_argument("--max-new-tokens", type=int, default=DEFAULT_MAX_NEW_TOKENS)
     parser.add_argument(
+        "--hardware-profile",
+        default="rtx-pro-6000-96gb-single-cuda",
+        help="写入结果记录的硬件画像标签。",
+    )
+    parser.add_argument(
         "--media-sync",
         choices=["eager", "lazy"],
         default="eager",
@@ -141,7 +146,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         seed=args.seed,
         sample_mode=args.sample_mode,
         output_dir=args.output_dir,
-        cache_dir=args.cache_dir,
+        cache_dir=args.cache_dir.expanduser(),
         dry_run=args.dry_run,
         resume=args.resume,
         overwrite=args.overwrite,
@@ -154,12 +159,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         progress=args.progress,
         log_file=args.log_file,
         media_sync=args.media_sync,
+        hardware_profile=args.hardware_profile,
     )
     try:
         result = run_suite(
             config,
             target=args.target,
-            dataset_dir=args.dataset_dir,
+            dataset_dir=args.dataset_dir.expanduser() if args.dataset_dir else None,
         )
     except (DatasetError, FileNotFoundError, ValueError) as exc:
         print(f"dataset error: {exc}", file=sys.stderr)
